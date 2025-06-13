@@ -129,6 +129,9 @@ main( int argc, char ** argv ) {
   server_quic->config.idle_timeout = 1e7;
   client_quic->config.idle_timeout = 1e9;
 
+  server_quic->config.ack_delay = 1e6;
+  client_quic->config.ack_delay = 1e6;
+
   fd_quic_virtual_pair_t vp;
   fd_quic_virtual_pair_init( &vp, server_quic, client_quic );
 

@@ -690,6 +690,16 @@ fd_quic_svc_schedule1( fd_quic_conn_t * conn ) {
   fd_quic_svc_schedule( fd_quic_get_state(conn->quic)->svc_timers, conn );
 }
 
+/* Validation Helper */
+static inline void
+svc_cnt_eq_active_conn( fd_quic_svc_timers_t * timers, fd_quic_t * quic ) {
+  ulong const event_cnt = fd_quic_svc_cnt_events( timers );
+  ulong const conn_cnt  = quic->metrics.conn_active_cnt;
+  if( FD_UNLIKELY( event_cnt != conn_cnt ) ) {
+    FD_LOG_CRIT(( "only %lu out of %lu connections are in timer", event_cnt, conn_cnt ));
+  }
+}
+
 /* validates the free conn list doesn't cycle, point nowhere, leak, or point to live conn */
 static void
 fd_quic_conn_free_validate( fd_quic_t * quic ) {
@@ -2252,6 +2262,8 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
         break;
     }
 
+    fd_quic_svc_schedule( state->svc_timers, conn );
+
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "Rejected packet (type=%d)", long_packet_type )); )
       return FD_QUIC_PARSE_FAIL;
@@ -2268,6 +2280,9 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     ulong dst_conn_id = fd_ulong_load_8( cur_ptr+1 );
     conn = fd_quic_conn_query( state->conn_map, dst_conn_id );
     rc = fd_quic_handle_v1_one_rtt( quic, conn, pkt, cur_ptr, cur_sz );
+
+    fd_quic_svc_schedule( state->svc_timers, conn );
+
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       return FD_QUIC_PARSE_FAIL;
     }
@@ -2283,6 +2298,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   int ack_type = fd_quic_lazy_ack_pkt( quic, conn, pkt );
   quic->metrics.ack_tx[ ack_type ]++;
 
+  /* fd_quic_lazy_ack_pkt may have prepped schedule */
   fd_quic_svc_schedule( state->svc_timers, conn );
 
   if( pkt->rtt_ack_time ) {
@@ -2462,6 +2478,7 @@ fd_quic_process_packet_impl( fd_quic_t * quic,
       }
 
       rc = fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
+      svc_cnt_eq_active_conn( state->svc_timers, quic );
 
       /* 0UL means no progress, so fail */
       if( FD_UNLIKELY( ( rc == FD_QUIC_PARSE_FAIL ) |
@@ -2491,6 +2508,7 @@ fd_quic_process_packet_impl( fd_quic_t * quic,
   /* short header packet
      only one_rtt packets currently have short headers */
   fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
+  svc_cnt_eq_active_conn( state->svc_timers, quic );
 }
 
 void
@@ -2875,7 +2893,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
             max_idle_timeout value advertised by both endpoints." */
         FD_DEBUG( FD_LOG_WARNING(("%s  conn %p  conn_idx: %u  closing due to idle timeout (%g ms)",
             conn->server?"SERVER":"CLIENT",
-            (void *)conn, conn->conn_idx, (double)fd_quic_ticks_to_us(conn->idle_timeout_ticks) / 1e3 )); )
+            (void *)conn, conn->conn_idx, (double)fd_quic_ticks_to_us( quic, conn->idle_timeout_ticks ) / 1e3 )); )
 
         fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
         quic->metrics.conn_timeout_cnt++;
@@ -2909,7 +2927,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     break;
   default:
     /* prep idle timeout or keep alive at idle timeout/2 */
-    fd_quic_svc_prep_schedule( conn, state->now + (conn->idle_timeout_ticks>>(quic->config.keep_alive)) );
+    fd_quic_svc_prep_schedule( conn, conn->last_activity + (conn->idle_timeout_ticks>>(quic->config.keep_alive)) );
     fd_quic_svc_schedule( state->svc_timers, conn );
     break;
   }
@@ -2927,6 +2945,7 @@ fd_quic_service( fd_quic_t * quic ) {
   long now_ticks = fd_tickcount();
 
   fd_quic_svc_timers_t * timers = state->svc_timers;
+  svc_cnt_eq_active_conn( timers, quic );
   fd_quic_svc_event_t    next   = fd_quic_svc_timers_next( timers, now, 1 /* pop */);
   if( FD_UNLIKELY( next.conn == NULL ) ) {
     return 0;
@@ -3513,6 +3532,8 @@ fd_quic_gen_frames( fd_quic_conn_t           * conn,
     }
   }
 
+  fd_quic_svc_prep_schedule( conn, pkt_meta_tmpl->expiry );
+
   return payload_ptr;
 }
 
@@ -3576,7 +3597,8 @@ fd_quic_conn_tx( fd_quic_t      * quic,
   ulong now = fd_quic_get_state( quic )->now;
 
   /* initialize expiry and tx_time */
-  fd_quic_pkt_meta_t pkt_meta_tmpl[1] = {{.expiry = now+500000000UL, .tx_time = now}};
+  ulong const retx_timeout = fd_quic_us_to_ticks( quic, 500000UL ); /* 500 ms */
+  fd_quic_pkt_meta_t pkt_meta_tmpl[1] = {{.expiry = now+retx_timeout, .tx_time = now}};
   // pkt_meta_tmpl->expiry = fd_quic_calc_expiry( conn, now );
   //ulong margin = (ulong)(conn->rtt->smoothed_rtt) + (ulong)(3 * conn->rtt->var_rtt);
   //if( margin < pkt_meta->expiry ) {
@@ -3855,7 +3877,6 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 void
 fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
   (void)now;
-  conn->svc_meta.next_timeout = ULONG_MAX;
 
   /* Send new rtt measurement probe? */
   if( FD_UNLIKELY(now > conn->last_ack + (ulong)conn->rtt_period_ticks) ) {
@@ -3947,6 +3968,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
     case FD_QUIC_CONN_STATE_INVALID:
       /* fall thru */
     default:
+      FD_LOG_CRIT(( "invalid conn state %u", conn->state ));
       return;
   }
 
@@ -3971,12 +3993,6 @@ fd_quic_conn_free( fd_quic_t *      quic,
   FD_COMPILER_MFENCE();
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
-
-  /* no need to remove this connection from the events queue
-     free is called from two places:
-       fini    - service will never be called again. All events are destroyed
-       service - removes event before calling free. Event only allowed to be
-       enqueued once */
 
   /* remove all stream ids from map, and free stream */
 
@@ -4034,12 +4050,12 @@ fd_quic_conn_free( fd_quic_t *      quic,
   }
   conn->tls_hs = NULL;
 
+  /* remove from service queue */
   fd_quic_svc_cancel( state->svc_timers, conn );
 
   /* put connection back in free list */
   conn->free_conn_next  = state->free_conn_list;
   state->free_conn_list = conn->conn_idx;
-  fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_INVALID );
 
   quic->metrics.conn_active_cnt--;
 
@@ -4065,7 +4081,6 @@ fd_quic_connect( fd_quic_t *  quic,
       return NULL;
     }
   }
-
 
   fd_rng_t * rng = state->_rng;
 
