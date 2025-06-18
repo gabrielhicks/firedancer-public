@@ -472,8 +472,16 @@ during_frag( fd_shred_ctx_t * ctx,
           /* chained_merkle_root is set as the merkle root of the last FEC set
             of the parent block (and passed in by POH tile) */
           if( FD_LIKELY( entry_meta->parent_block_id_valid ) ) {
+            if( entry_meta->parent_offset==1 && ctx->slot%4!=0 ) {
+              if( !fd_memeq( ctx->chained_merkle_root, entry_meta->parent_block_id, FD_SHRED_MERKLE_ROOT_SZ ) ) {
+                FD_LOG_WARNING(( "chained_merkle_root!=block_id (block_id=....,slot=%lu,parent_slot=%lu) - ignored", ctx->slot, ctx->slot-entry_meta->parent_offset ));
+              }
+            }
             memcpy( ctx->chained_merkle_root, entry_meta->parent_block_id, FD_SHRED_MERKLE_ROOT_SZ );
+          } else if( FD_LIKELY( entry_meta->parent_by_same_leader && entry_meta->parent_offset==1 ) ) {
+            /* ctx->chained_merkle_root already contains the block_id */
           } else {
+            FD_LOG_WARNING(( "invalid_block_id_cnt++ (block_id=null,slot=%lu,parent_slot=%lu) - ignored", ctx->slot, ctx->slot-entry_meta->parent_offset ));
             ctx->metrics->invalid_block_id_cnt++;
             memset( ctx->chained_merkle_root, 0, FD_SHRED_MERKLE_ROOT_SZ );
           }

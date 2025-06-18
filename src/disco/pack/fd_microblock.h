@@ -36,6 +36,7 @@ struct fd_entry_batch_meta {
      block). */
   uchar parent_block_id[ 32 ];
   uchar parent_block_id_valid;
+  uchar parent_by_same_leader;
 };
 typedef struct fd_entry_batch_meta fd_entry_batch_meta_t;
 
