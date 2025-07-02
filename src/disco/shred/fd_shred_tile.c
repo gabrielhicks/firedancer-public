@@ -191,6 +191,7 @@ typedef struct {
   /* Includes Ethernet, IP, UDP headers */
   ulong shred_buffer_sz;
   uchar shred_buffer[ FD_NET_MTU ];
+  ulong shred_from_multicast;
 
   fd_shred_in_ctx_t in[ 32 ];
   int               in_kind[ 32 ];
@@ -707,6 +708,7 @@ snp_callback_rx( void const *  _ctx,
 
   fd_memcpy( ctx->shred_buffer, data, data_sz );
   ctx->shred_buffer_sz = data_sz;
+  ctx->shred_from_multicast = meta & FD_SNP_META_OPT_BROADCAST;
 
   if( shred->slot%10==0 && shred->fec_set_idx==0 && shred->idx==0 ) {
     FD_LOG_NOTICE(( "[shred] shred received %lu:%u:%u", shred->slot, shred->fec_set_idx, shred->idx ));
@@ -871,7 +873,7 @@ after_frag( fd_shred_ctx_t *    ctx,
           if( FD_UNLIKELY( !dests ) ) break;
 
           send_shred( ctx, *out_shred, ctx->adtl_dest, 0UL/*reuse_prev_pkt*/ );
-          for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, fd_shred_dest_idx_to_dest( sdest, dests[ j ]), fd_ulong_if( !j, 0UL, 1UL )/*reuse_prev_pkt*/ );
+          for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, fd_shred_dest_idx_to_dest( sdest, dests[ j ]), fd_ulong_if( !j, ctx->shred_from_multicast, 1UL )/*reuse_prev_pkt*/ );
         } while( 0 );
       }
 
