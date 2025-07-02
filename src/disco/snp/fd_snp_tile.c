@@ -176,10 +176,11 @@ handle_new_cluster_contact_info( fd_snp_ctx_t * ctx,
   fd_shred_dest_wire_t const * in_dests = fd_type_pun_const( header+1UL );
   fd_shred_dest_weighted_t * dests = fd_stake_ci_dest_add_init( ctx->stake_ci );
 
+  if( ctx->new_dest_cnt!=dest_cnt ) {
+    FD_LOG_NOTICE(( "[SNP] handle_new_cluster_contact_info, dest_cnt %lu", dest_cnt ));
+  }
   ctx->new_dest_ptr = dests;
   ctx->new_dest_cnt = dest_cnt;
-
-  FD_LOG_NOTICE(( "[SNP] handle_new_cluster_contact_info, dest_cnt %lu", dest_cnt ));
 
   for( ulong i=0UL; i<dest_cnt; i++ ) {
     memcpy( dests[i].pubkey.uc, in_dests[i].pubkey, 32UL );
@@ -196,7 +197,6 @@ handle_new_cluster_contact_info( fd_snp_ctx_t * ctx,
 
 static inline void
 finalize_new_cluster_contact_info( fd_snp_ctx_t * ctx ) {
-  FD_LOG_NOTICE(( "[SNP] finalize_new_cluster_contact_info" ));
   fd_stake_ci_dest_add_fini( ctx->stake_ci, ctx->new_dest_cnt );
 }
 
@@ -302,7 +302,6 @@ during_frag( fd_snp_ctx_t * ctx,
               ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
       fd_memcpy( ctx->signature, dcache_entry, FD_ED25519_SIG_SZ );
-      FD_LOG_WARNING(( "[snp] received signature back for session_id %lu", sig /*session_id*/ ));
     } break;
 
     case IN_KIND_CRDS: {
@@ -404,11 +403,12 @@ snp_callback_tx( void const *  _ctx,
   (void)packet;
 
   fd_snp_ctx_t * ctx = (fd_snp_ctx_t *)_ctx;
-  uint dst_ip;
+  uint dst_ip_meta;
   ushort dst_port;
-  fd_snp_meta_into_parts( NULL, NULL, &dst_ip, &dst_port, meta );
+  fd_snp_meta_into_parts( NULL, NULL, &dst_ip_meta, &dst_port, meta );
 
-  ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
+  uint dst_ip = fd_uint_load_4( packet+FD_SNP_IP_DST_ADDR_OFF );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig = fd_disco_netmux_sig( dst_ip, dst_port, dst_ip, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
   /* memcpy is done in during_frag, it's only needed for buffered packets */
@@ -534,6 +534,7 @@ unprivileged_init( fd_topo_t *      topo,
   snp->cb.sign = snp_callback_sign;
   snp->apps_cnt = 1;
   snp->apps[0].port = 8003;
+  snp->apps[0].multicast_ip = (uint)((239 << 24) + (0 << 16) + (192 << 8) + 18);
   FD_TEST( fd_snp_init( snp ) );
   fd_memcpy( snp->config.identity, ctx->identity_key, sizeof(fd_pubkey_t) );
 

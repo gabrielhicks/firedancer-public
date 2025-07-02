@@ -628,7 +628,13 @@ send_shred( fd_shred_ctx_t                 * ctx,
   uchar * packet = NULL;
   if( FD_UNLIKELY( !reuse_prev_pkt ) ) packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
   fd_snp_meta_t meta = fd_snp_meta_from_parts( FD_SNP_META_PROTO_V1, /* app_id */ 0, dest->ip4, dest->port );
-  FD_DEBUG_SHRED( FD_LOG_NOTICE(( "[shred] sending shred %lu:%u:%u", shred->slot, shred->fec_set_idx, shred->idx )) );
+  if( reuse_prev_pkt ) {
+    meta |= FD_SNP_META_OPT_BROADCAST;
+  }
+  if( shred->slot%10==0 && shred->fec_set_idx==0 && shred->idx==0 ) {
+    FD_LOG_NOTICE(( "[shred] sending shred %lu:%u:%u to=%08x meta=%016lx", shred->slot, shred->fec_set_idx, shred->idx, dest->ip4, meta ));
+  }
+  FD_DEBUG_SHRED(FD_LOG_NOTICE(( "[shred] sending shred %lu:%u:%u", shred->slot, shred->fec_set_idx, shred->idx )) );
   FD_PARAM_UNUSED int res = fd_snp_app_send( ctx->snp, packet, FD_NET_MTU, shred, shred_sz, meta );
   FD_DEBUG_SHRED( if( res<0 ) FD_LOG_WARNING(( "[shred] send error: %d", res )) );
 }
@@ -701,6 +707,10 @@ snp_callback_rx( void const *  _ctx,
 
   fd_memcpy( ctx->shred_buffer, data, data_sz );
   ctx->shred_buffer_sz = data_sz;
+
+  if( shred->slot%10==0 && shred->fec_set_idx==0 && shred->idx==0 ) {
+    FD_LOG_NOTICE(( "[shred] shred received %lu:%u:%u", shred->slot, shred->fec_set_idx, shred->idx ));
+  }
 
   FD_DEBUG_SHRED( FD_LOG_NOTICE(( "[shred] shred received %lu:%u:%u", shred->slot, shred->fec_set_idx, shred->idx )) );
   return FD_SNP_SUCCESS;

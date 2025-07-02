@@ -152,6 +152,7 @@ struct FD_SNP_ALIGNED fd_snp_conn {
 
   uchar state;
   uchar is_server;
+  uchar is_multicast;
 
   fd_snp_pkt_t * last_pkt;
 

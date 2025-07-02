@@ -159,6 +159,9 @@ fd_snp_init( fd_snp_t * snp ) {
       return NULL;
     }
     fd_ip4_udp_hdr_init( snp->apps[j].net_hdr, 0, 0, snp->apps[j].port );
+    snp->apps[j].multicast_net_hdr[j] = snp->apps[j].net_hdr[j];
+    snp->apps[j].multicast_net_hdr->ip4->daddr = fd_uint_bswap( snp->apps[j].multicast_ip );
+    snp->apps[j].multicast_net_hdr->udp->net_dport = fd_ushort_bswap( snp->apps[j].port );
   }
 
   /* Initialize conn_pool */
@@ -289,6 +292,8 @@ fd_snp_conn_create( fd_snp_t * snp,
      during the handshake. */
   conn->flow_tx_wmark = snp->flow_cred_alloc;
 
+  conn->is_multicast = 1;
+
   /* init last_pkt */
   last_pkt->data_sz = 0;
 
@@ -307,8 +312,6 @@ err:
 int
 fd_snp_conn_delete( fd_snp_t * snp,
                     fd_snp_conn_t * conn ) {
-  FD_LOG_WARNING(( "fd_snp_conn_delete session_id=%016lx", conn->session_id ));
-
   /* return taken flow credits to the pool. */
   snp->flow_cred_taken -= conn->flow_rx_alloc;
 
@@ -488,6 +491,48 @@ fd_snp_verify_snp_and_invoke_rx_cb(
 }
 
 static inline int
+fd_snp_finalize_multicast_and_invoke_tx_cb(
+  fd_snp_t *      snp,
+  fd_snp_conn_t * conn,
+  uchar *         packet,
+  ulong           packet_sz,
+  fd_snp_meta_t   meta
+) {
+  (void)conn;
+
+  if( FD_UNLIKELY( packet_sz==0 ) ) {
+    return 0;
+  }
+
+  /* no mac auth */
+  packet_sz -= 19UL;
+
+  /* snp header */
+  snp_hdr_t * udp_payload = (snp_hdr_t *)( packet + sizeof(fd_ip4_udp_hdrs_t) );
+  udp_payload->version_type = fd_snp_hdr_version_type( FD_SNP_V1, FD_SNP_TYPE_PAYLOAD );
+  udp_payload->session_id = 0UL;
+
+  /* ip header */
+  uchar snp_app_id;
+  fd_snp_meta_into_parts( NULL, &snp_app_id, NULL, NULL, meta );
+
+  fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
+  memcpy( hdr, snp->apps[ snp_app_id ].multicast_net_hdr, sizeof(fd_ip4_udp_hdrs_t) );
+  fd_ip4_hdr_t * ip4 = hdr->ip4;
+  ip4->net_id = fd_ushort_bswap( snp->apps[ snp_app_id ].net_id++ );
+  ip4->check  = fd_ip4_hdr_check_fast( ip4 );
+  hdr->udp->net_len    = fd_ushort_bswap( (ushort)( packet_sz - sizeof(fd_ip4_udp_hdrs_t) + sizeof(fd_udp_hdr_t) ) );
+
+  {
+    static ulong cnt_tx_m;
+    if( cnt_tx_m%1000==0 ) FD_LOG_HEXDUMP_NOTICE(( "multi", packet, 42 + 20 ));
+    cnt_tx_m++;
+  }
+
+  return snp->cb.tx ? snp->cb.tx( snp->cb.ctx, packet, packet_sz, meta ) : (int)packet_sz;
+}
+
+static inline int
 fd_snp_cache_packet_and_invoke_sign_cb(
   fd_snp_t *      snp,
   fd_snp_conn_t * conn,
@@ -651,6 +696,12 @@ fd_snp_send( fd_snp_t *    snp,
 
   /* 4. (likely case) If we have an established connection, send packet and return */
   if( FD_LIKELY( conn!=NULL && conn->state==FD_SNP_TYPE_HS_DONE ) ) {
+    if( FD_UNLIKELY( conn->is_multicast ) ) {
+      if( meta & FD_SNP_META_OPT_BROADCAST ) {
+        return 0;
+      }
+      return fd_snp_finalize_multicast_and_invoke_tx_cb( snp, conn, packet, packet_sz, meta );
+    }
     FD_DEBUG_SNP( FD_LOG_NOTICE(( "[snp-send] SNP send" )) );
     return fd_snp_finalize_snp_and_invoke_tx_cb( snp, conn, packet, packet_sz, meta );
   } /* else is implicit */
@@ -702,7 +753,7 @@ fd_snp_send( fd_snp_t *    snp,
 
    5. (likely case) Recv state machine
 
-      R1. If multicast, accept (TODO)
+      R1. If multicast, accept
       R2. Validate conn, or drop
       R3. (likely case) conn established + validate integrity, accept
       R4. state==4, cache packet
@@ -771,10 +822,18 @@ fd_snp_process_packet( fd_snp_t * snp,
   /* 5. (likely case) Recv state machine */
   int type = snp_hdr_type( head );
   if( FD_LIKELY( type==FD_SNP_TYPE_PAYLOAD ) ) {
-    /* R1. If multicast, accept (TODO) */
+    /* R1. If multicast, accept */
+    if( FD_UNLIKELY( fd_snp_ip_is_multicast( packet ) ) ) {
+      {
+        static ulong cnt_rx_m;
+        if( cnt_rx_m%1000==0 ) FD_LOG_NOTICE(( "[snp] received multicast packet_sz=%lu", packet_sz ));
+        cnt_rx_m++;
+      }
+      return snp->cb.rx( snp->cb.ctx, packet, packet_sz, meta );
+    }
 
     /* R2. Validate conn, or drop */
-    if(FD_UNLIKELY( conn==NULL || conn->peer_addr != peer_addr ) ) {
+    if( FD_UNLIKELY( conn==NULL || conn->peer_addr != peer_addr ) ) {
       FD_DEBUG_SNP( FD_LOG_WARNING(( "[snp-pkt] invalid conn or IP" )) );
       return -1;
     }
@@ -798,6 +857,7 @@ fd_snp_process_packet( fd_snp_t * snp,
         long wmark = (long)tlv[0].u64;
         FD_DEBUG_SNP( FD_LOG_NOTICE(( "[snp-pkt] tlv type %u previous wmark %ld new wmark %ld", tlv[0].type, conn->flow_tx_wmark, wmark )) );
         conn->flow_tx_wmark = wmark;
+        conn->last_recv_ts = fd_snp_timestamp_ms();
         return 0;
       }
       return fd_snp_verify_snp_and_invoke_rx_cb( snp, conn, packet, packet_sz, meta );
@@ -976,8 +1036,8 @@ fd_snp_housekeeping( fd_snp_t * snp ) {
 
 #define FD_SNP_HANDSHAKE_RETRY_MAX (5U)
 #define FD_SNP_HANDSHAKE_RETRY_MS  (500L)
-#define FD_SNP_KEEP_ALIVE_MS       (5000L)
-#define FD_SNP_TIMEOUT_MS          (20000L)
+#define FD_SNP_KEEP_ALIVE_MS       (4000L)
+#define FD_SNP_TIMEOUT_MS          (10000L)
 
   long now = fd_snp_timestamp_ms();
   for( ; idx<max && used_ele<used; idx++, conn++ ) {
@@ -992,7 +1052,7 @@ fd_snp_housekeeping( fd_snp_t * snp ) {
 
     if( FD_SNP_STATE_INVALID < conn->state && conn->state < FD_SNP_TYPE_HS_DONE ) {
       if( conn->retry_cnt == FD_SNP_HANDSHAKE_RETRY_MAX ) {
-        FD_LOG_NOTICE(( "[snp-hkp] retry expired - deleting session_id=%016lx", conn->session_id ));
+        FD_LOG_WARNING(( "[snp-hkp] retry expired - deleting session_id=%016lx", conn->session_id ));
         fd_snp_conn_delete( snp, conn );
         continue;
       }
@@ -1006,11 +1066,12 @@ fd_snp_housekeeping( fd_snp_t * snp ) {
 
     if( FD_LIKELY( conn->state==FD_SNP_TYPE_HS_DONE ) ) {
       if( now > conn->last_recv_ts + FD_SNP_TIMEOUT_MS ) {
-        FD_LOG_NOTICE(( "[snp-hkp] timeout - deleting session_id=%016lx", conn->session_id ));
+        FD_LOG_WARNING(( "[snp-hkp] timeout - deleting session_id=%016lx", conn->session_id ));
         fd_snp_conn_delete( snp, conn );
         continue;
       }
       if( now > conn->last_sent_ts + FD_SNP_KEEP_ALIVE_MS ) {
+        FD_LOG_WARNING(( "[snp-hkp] keep alive - pinging session_id=%016lx peer_session_id=%016lx", conn->session_id, conn->peer_session_id ));
         FD_DEBUG_SNP( FD_LOG_NOTICE(( "[snp-hkp] keep alive - pinging session_id=%016lx peer_session_id=%016lx", conn->session_id, conn->peer_session_id )) );
         fd_snp_send_ping( snp, conn );
         continue;

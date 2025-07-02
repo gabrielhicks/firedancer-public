@@ -88,6 +88,8 @@ struct fd_snp_applications {
   ushort            port;
   ushort            net_id;
   fd_ip4_udp_hdrs_t net_hdr[1];
+  uint              multicast_ip;
+  fd_ip4_udp_hdrs_t multicast_net_hdr[1];
 };
 typedef struct fd_snp_applications fd_snp_applications_t;
 
@@ -101,6 +103,12 @@ struct FD_SNP_ALIGNED fd_snp {
 
   fd_snp_applications_t apps[8];
   ulong                 apps_cnt;
+
+  struct {
+    ulong               ip4;
+    ushort              net_id;
+    fd_ip4_udp_hdrs_t   net_hdr[1];
+  }                     multicast;
 
   fd_snp_conn_t *       conn_pool;
   fd_snp_conn_map_t *   conn_map;

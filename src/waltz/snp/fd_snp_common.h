@@ -13,6 +13,7 @@
 
 #define FD_SNP_META_OPT_BUFFERED  (0x1000000000000000UL)
 #define FD_SNP_META_OPT_HANDSHAKE (0x2000000000000000UL)
+#define FD_SNP_META_OPT_BROADCAST (0x4000000000000000UL)
 
 #define FD_SNP_META_IP_MASK       (0x00000000FFFFFFFFUL)
 #define FD_SNP_META_PORT_MASK     (0x0000FFFF00000000UL)
@@ -32,6 +33,8 @@
 #define FD_SNP_FRAME_CONN_CLOSE  (0x1D)
 #define FD_SNP_FRAME_MC_ANNOUNCE (0x51)
 #define FD_SNP_FRAME_MC_STATE    (0x52)
+
+#define FD_SNP_IP_DST_ADDR_OFF   (30UL)
 
 /* TYPES */
 
@@ -81,6 +84,11 @@ fd_snp_meta_into_parts( ulong *       snp_proto,
   if( snp_app_id ) *snp_app_id = (uchar)( ( meta & FD_SNP_META_APP_MASK ) >> 48 );
   if( ip4        ) *ip4       = (uint  )( meta );
   if( port       ) *port      = (ushort)( meta >> 32 );
+}
+
+static inline int
+fd_snp_ip_is_multicast( uchar const * packet ) {
+  return 224 <= packet[FD_SNP_IP_DST_ADDR_OFF] && packet[FD_SNP_IP_DST_ADDR_OFF] <= 239;
 }
 
 /* fd_snp_tlv_extract() parses a tlv set pointed to by

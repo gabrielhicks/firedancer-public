@@ -54,6 +54,9 @@ fd_snp_app_recv( fd_snp_app_t const * ctx,          /* snp_app context */
       //FIXME: parse properly
       data = packet + sizeof(fd_ip4_udp_hdrs_t) + 15;            //TODO: 12 is for SNP header + 3 for TL
       data_sz = packet_sz - sizeof(fd_ip4_udp_hdrs_t) - 15 - 19; //TODO: 19 is for final TL-MAC
+      if( FD_UNLIKELY( fd_snp_ip_is_multicast( packet ) ) ) {
+        data_sz += 19;
+      }
       break;
     default:
       return FD_SNP_FAILURE; /* Not implemented */
