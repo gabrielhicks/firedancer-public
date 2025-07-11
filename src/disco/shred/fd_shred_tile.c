@@ -591,6 +591,9 @@ during_frag( fd_shred_ctx_t * ctx,
       ctx->skip_frag = 1;
       return;
     };
+    if( shred->fec_set_idx==0 && shred->idx==0 )
+    FD_LOG_WARNING(( "[shred] received shred %lu:%u:%u from %s", shred->slot, shred->fec_set_idx, shred->idx,
+      fd_disco_netmux_sig_proto( sig )==DST_PROTO_SHRED ? "turbine" : "repair" ));
 
     /* Drop unchained merkle shreds (if feature is active) */
     int is_unchained = !fd_shred_is_chained( fd_shred_type( shred->variant ) );
@@ -1243,6 +1246,8 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  FD_LOG_NOTICE(( "[shred] unpriviledged_init done" ));
 }
 
 static ulong

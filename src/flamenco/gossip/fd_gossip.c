@@ -197,6 +197,13 @@ fd_value_from_crds( fd_value_t            * val,
       val->wallclock = crd->data.inner.contact_info_v1.wallclock;
       break;
     case fd_crds_data_enum_vote:
+      {
+        static int first_vote = 0;
+        if( !first_vote ) {
+          first_vote = 1;
+          FD_LOG_WARNING(( "first vote via gossip" ));
+        }
+      }
       val->origin     = crd->data.inner.vote.from;
       val->wallclock  = crd->data.inner.vote.wallclock;
       break;

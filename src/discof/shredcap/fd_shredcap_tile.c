@@ -214,6 +214,10 @@ publish_stake_weights( fd_capture_tile_ctx_t * ctx,
   fd_vote_accounts_global_t const * epoch_stakes = vote_accounts;
   fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( epoch_stakes );
 
+  FD_LOG_WARNING(( "...SLEEPING..."));
+  // fd_log_sleep( 30000000000 );
+  FD_LOG_WARNING(( "...DONE SLEEPING..."));
+
   if( epoch_stakes_root!=NULL ) {
     ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
     ulong epoch               = fd_slot_to_leader_schedule_epoch( epoch_schedule, manifest_slot );
@@ -260,8 +264,7 @@ after_credit( fd_capture_tile_ctx_t * ctx,
 
     int fd = open( manifest_file, O_RDONLY );
     if( FD_UNLIKELY( fd < 0 ) ) {
-      FD_LOG_WARNING(( "open(%s) failed (%d-%s)", manifest_file, errno, fd_io_strerror( errno ) ));
-      return;
+      FD_LOG_ERR(( "open(%s) failed (%d-%s)", manifest_file, errno, fd_io_strerror( errno ) ));
     }
     uchar * buf    = ctx->manifest_buf_mem;
     ulong   buf_sz = 0;
