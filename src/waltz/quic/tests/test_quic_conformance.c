@@ -782,7 +782,7 @@ test_quic_rtt_sample( void ) {
   SAMPLE( (long)8000e3, (long)250 );
   /* 250 ack_delay = 250 * 4us = 1000us = 2500e3 ticks */
   FD_TEST( conn.rtt->min_rtt      == 5000000.0f );
-  FD_TEST( conn.rtt->latest_rtt   == 5500000.0f );
+  FD_TEST( conn.rtt->latest_rtt   == 8000000.0f );
   FD_TEST( conn.rtt->smoothed_rtt == 8125000.0f );
   FD_TEST( conn.rtt->var_rtt      == 3843750.0f );
 
