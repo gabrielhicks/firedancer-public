@@ -438,7 +438,7 @@ fd_spad_check( fd_spad_t * spad,
    run out of frame space.
 */
 
-extern void *
+static inline void *
 fd_spad_alloc_check( fd_spad_t * spad,
                      ulong       align,
                      ulong       sz );

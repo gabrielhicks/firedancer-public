@@ -89,7 +89,7 @@ fd_spad_pop_debug( fd_spad_t * spad ) {
 }
 
 void *
-fd_spad_alloc_check( fd_spad_t * spad,
+fd_spad_alloc_check_debug( fd_spad_t * spad,
                      ulong       align,
                      ulong       sz ) {
   if( FD_UNLIKELY( !fd_spad_frame_used( spad )               ) ) FD_LOG_CRIT(( "not in a frame"  ));
