@@ -46,6 +46,9 @@ fd_sshttp_advance( fd_sshttp_t * http,
                    uchar *       data,
                    long          now );
 
+char *
+fd_sshttp_opt_redirect_path( fd_sshttp_t * http );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_sshttp_h */

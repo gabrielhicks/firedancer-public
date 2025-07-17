@@ -9,6 +9,7 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
+#include "../../disco/plugin/fd_plugin.h"
 
 FD_FN_CONST ulong
 fd_gui_align( void ) {
@@ -28,6 +29,7 @@ fd_gui_new( void *             shmem,
             uchar const *      identity_key,
             int                has_vote_key,
             uchar const *      vote_key,
+            int                is_full_client,
             int                is_voting,
             int                schedule_strategy,
             fd_topo_t *        topo ) {
@@ -74,15 +76,18 @@ fd_gui_new( void *             shmem,
     memset( gui->summary.vote_key_base58, 0, sizeof(gui->summary.vote_key_base58) );
   }
 
+  gui->summary.is_full_client                = is_full_client;
   gui->summary.version                       = version;
   gui->summary.cluster                       = cluster;
   gui->summary.startup_time_nanos            = gui->next_sample_400millis;
 
-  gui->summary.startup_progress                       = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
-  gui->summary.startup_got_full_snapshot              = 0;
-  gui->summary.startup_full_snapshot_slot             = 0;
-  gui->summary.startup_incremental_snapshot_slot      = 0;
-  gui->summary.startup_waiting_for_supermajority_slot = ULONG_MAX;
+  gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
+  gui->summary.startup_progress.startup_got_full_snapshot              = 0;
+  gui->summary.startup_progress.startup_full_snapshot_slot             = 0;
+  gui->summary.startup_progress.startup_incremental_snapshot_slot      = 0;
+  gui->summary.startup_progress.startup_waiting_for_supermajority_slot = ULONG_MAX;
+
+  gui->summary.startup_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP;
 
   gui->summary.identity_account_balance      = 0UL;
   gui->summary.vote_account_balance          = 0UL;
@@ -157,7 +162,8 @@ void
 fd_gui_ws_open( fd_gui_t * gui,
                 ulong      ws_conn_id ) {
   void (* printers[] )( fd_gui_t * gui ) = {
-    fd_gui_printf_startup_progress,
+    fd_gui_printf_client,
+    gui->summary.is_full_client ? fd_gui_printf_boot_progress : fd_gui_printf_startup_progress,
     fd_gui_printf_version,
     fd_gui_printf_cluster,
     fd_gui_printf_commit_hash,
@@ -525,6 +531,40 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
   stats->bank_txn_exec_cnt = waterfall->out.block_fail + waterfall->out.block_success;
 }
 
+static void
+fd_gui_run_boot_progress( fd_gui_t * gui, long now_ns ) {
+  fd_topo_tile_t const * snaprd = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snaprd", 0UL ) ];
+  volatile ulong * snaprd_metrics = fd_metrics_tile( snaprd->metrics );
+  ulong phase = snaprd_metrics[ MIDX( GAUGE, SNAPRD, STATE ) ];
+
+  if( FD_UNLIKELY( phase >= 2UL /* FD_SNAPRD_STATE_READING_FULL_FILE */ ) ) {
+    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT;
+  }
+
+  if( FD_UNLIKELY( phase >= 5UL /* FD_SNAPRD_STATE_READING_INCREMENTAL_FILE */ ) ) {
+    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCR_SNAPSHOT;
+  }
+
+  switch ( gui->summary.boot_progress.phase ) {
+    case FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP: {
+      gui->summary.boot_progress.joining_gossip_elapsed_ns = now_ns - gui->summary.startup_time_nanos;
+      break;
+    }
+    case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT: {
+      break;
+    }
+    case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCR_SNAPSHOT: {
+      break;
+    }
+    case FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP: {
+      break;
+    }
+    case FD_GUI_BOOT_PROGRESS_TYPE_RUNNING: {
+      break;
+    }
+  }
+}
+
 int
 fd_gui_poll( fd_gui_t * gui ) {
   long now = fd_log_wallclock();
@@ -560,6 +600,10 @@ fd_gui_poll( fd_gui_t * gui ) {
     fd_gui_printf_live_tile_timers( gui );
     fd_http_server_ws_broadcast( gui->http );
 
+    if( FD_UNLIKELY( gui->summary.is_full_client && gui->summary.boot_progress.phase!=FD_GUI_BOOT_PROGRESS_TYPE_RUNNING ) ) {
+      fd_gui_run_boot_progress( gui, now );
+    }
+    
     gui->next_sample_10millis += 10L*1000L*1000L;
     did_work = 1;
   }
@@ -1506,16 +1550,16 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
 
   switch (type) {
     case 0:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
       FD_LOG_INFO(( "progress: initializing" ));
       break;
     case 1: {
       char const * snapshot_type;
-      if( FD_UNLIKELY( gui->summary.startup_got_full_snapshot ) ) {
-        gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_INCREMENTAL_SNAPSHOT;
+      if( FD_UNLIKELY( gui->summary.startup_progress.startup_got_full_snapshot ) ) {
+        gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_INCREMENTAL_SNAPSHOT;
         snapshot_type = "incremental";
       } else {
-        gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_FULL_SNAPSHOT;
+        gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_FULL_SNAPSHOT;
         snapshot_type = "full";
       }
       FD_LOG_INFO(( "progress: searching for %s snapshot", snapshot_type ));
@@ -1524,70 +1568,70 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
     case 2: {
       uchar is_full_snapshot = msg[ 1 ];
       if( FD_LIKELY( is_full_snapshot ) ) {
-          gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_FULL_SNAPSHOT;
-          gui->summary.startup_full_snapshot_slot = *((ulong *)(msg + 2));
-          gui->summary.startup_full_snapshot_peer_ip_addr = *((uint *)(msg + 10));
-          gui->summary.startup_full_snapshot_peer_port = *((ushort *)(msg + 14));
-          gui->summary.startup_full_snapshot_total_bytes = *((ulong *)(msg + 16));
-          gui->summary.startup_full_snapshot_current_bytes = *((ulong *)(msg + 24));
-          gui->summary.startup_full_snapshot_elapsed_secs = *((double *)(msg + 32));
-          gui->summary.startup_full_snapshot_remaining_secs = *((double *)(msg + 40));
-          gui->summary.startup_full_snapshot_throughput = *((double *)(msg + 48));
-          FD_LOG_INFO(( "progress: downloading full snapshot: slot=%lu", gui->summary.startup_full_snapshot_slot ));
+          gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_FULL_SNAPSHOT;
+          gui->summary.startup_progress.startup_full_snapshot_slot = *((ulong *)(msg + 2));
+          gui->summary.startup_progress.startup_full_snapshot_peer_ip_addr = *((uint *)(msg + 10));
+          gui->summary.startup_progress.startup_full_snapshot_peer_port = *((ushort *)(msg + 14));
+          gui->summary.startup_progress.startup_full_snapshot_total_bytes = *((ulong *)(msg + 16));
+          gui->summary.startup_progress.startup_full_snapshot_current_bytes = *((ulong *)(msg + 24));
+          gui->summary.startup_progress.startup_full_snapshot_elapsed_secs = *((double *)(msg + 32));
+          gui->summary.startup_progress.startup_full_snapshot_remaining_secs = *((double *)(msg + 40));
+          gui->summary.startup_progress.startup_full_snapshot_throughput = *((double *)(msg + 48));
+          FD_LOG_INFO(( "progress: downloading full snapshot: slot=%lu", gui->summary.startup_progress.startup_full_snapshot_slot ));
       } else {
-          gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_INCREMENTAL_SNAPSHOT;
-          gui->summary.startup_incremental_snapshot_slot = *((ulong *)(msg + 2));
-          gui->summary.startup_incremental_snapshot_peer_ip_addr = *((uint *)(msg + 10));
-          gui->summary.startup_incremental_snapshot_peer_port = *((ushort *)(msg + 14));
-          gui->summary.startup_incremental_snapshot_total_bytes = *((ulong *)(msg + 16));
-          gui->summary.startup_incremental_snapshot_current_bytes = *((ulong *)(msg + 24));
-          gui->summary.startup_incremental_snapshot_elapsed_secs = *((double *)(msg + 32));
-          gui->summary.startup_incremental_snapshot_remaining_secs = *((double *)(msg + 40));
-          gui->summary.startup_incremental_snapshot_throughput = *((double *)(msg + 48));
-          FD_LOG_INFO(( "progress: downloading incremental snapshot: slot=%lu", gui->summary.startup_incremental_snapshot_slot ));
+          gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_INCREMENTAL_SNAPSHOT;
+          gui->summary.startup_progress.startup_incremental_snapshot_slot = *((ulong *)(msg + 2));
+          gui->summary.startup_progress.startup_incremental_snapshot_peer_ip_addr = *((uint *)(msg + 10));
+          gui->summary.startup_progress.startup_incremental_snapshot_peer_port = *((ushort *)(msg + 14));
+          gui->summary.startup_progress.startup_incremental_snapshot_total_bytes = *((ulong *)(msg + 16));
+          gui->summary.startup_progress.startup_incremental_snapshot_current_bytes = *((ulong *)(msg + 24));
+          gui->summary.startup_progress.startup_incremental_snapshot_elapsed_secs = *((double *)(msg + 32));
+          gui->summary.startup_progress.startup_incremental_snapshot_remaining_secs = *((double *)(msg + 40));
+          gui->summary.startup_progress.startup_incremental_snapshot_throughput = *((double *)(msg + 48));
+          FD_LOG_INFO(( "progress: downloading incremental snapshot: slot=%lu", gui->summary.startup_progress.startup_incremental_snapshot_slot ));
       }
       break;
     }
     case 3: {
-      gui->summary.startup_got_full_snapshot = 1;
+      gui->summary.startup_progress.startup_got_full_snapshot = 1;
       break;
     }
     case 4:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_CLEANING_BLOCK_STORE;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_CLEANING_BLOCK_STORE;
       FD_LOG_INFO(( "progress: cleaning block store" ));
       break;
     case 5:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_CLEANING_ACCOUNTS;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_CLEANING_ACCOUNTS;
       FD_LOG_INFO(( "progress: cleaning accounts" ));
       break;
     case 6:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_LOADING_LEDGER;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_LOADING_LEDGER;
       FD_LOG_INFO(( "progress: loading ledger" ));
       break;
     case 7: {
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER;
-      gui->summary.startup_ledger_slot = fd_ulong_load_8( msg + 1 );
-      gui->summary.startup_ledger_max_slot = fd_ulong_load_8( msg + 9 );
-      FD_LOG_INFO(( "progress: processing ledger: slot=%lu, max_slot=%lu", gui->summary.startup_ledger_slot, gui->summary.startup_ledger_max_slot ));
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER;
+      gui->summary.startup_progress.startup_ledger_slot = fd_ulong_load_8( msg + 1 );
+      gui->summary.startup_progress.startup_ledger_max_slot = fd_ulong_load_8( msg + 9 );
+      FD_LOG_INFO(( "progress: processing ledger: slot=%lu, max_slot=%lu", gui->summary.startup_progress.startup_ledger_slot, gui->summary.startup_progress.startup_ledger_max_slot ));
       break;
     }
     case 8:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_STARTING_SERVICES;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_STARTING_SERVICES;
       FD_LOG_INFO(( "progress: starting services" ));
       break;
     case 9:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_HALTED;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_HALTED;
       FD_LOG_INFO(( "progress: halted" ));
       break;
     case 10: {
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY;
-      gui->summary.startup_waiting_for_supermajority_slot = fd_ulong_load_8( msg + 1 );
-      gui->summary.startup_waiting_for_supermajority_stake_pct = fd_ulong_load_8( msg + 9 );
-      FD_LOG_INFO(( "progress: waiting for supermajority: slot=%lu, gossip_stake_percent=%lu", gui->summary.startup_waiting_for_supermajority_slot, gui->summary.startup_waiting_for_supermajority_stake_pct ));
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY;
+      gui->summary.startup_progress.startup_waiting_for_supermajority_slot = fd_ulong_load_8( msg + 1 );
+      gui->summary.startup_progress.startup_waiting_for_supermajority_stake_pct = fd_ulong_load_8( msg + 9 );
+      FD_LOG_INFO(( "progress: waiting for supermajority: slot=%lu, gossip_stake_percent=%lu", gui->summary.startup_progress.startup_waiting_for_supermajority_slot, gui->summary.startup_progress.startup_waiting_for_supermajority_stake_pct ));
       break;
     }
     case 11:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_RUNNING;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_RUNNING;
       FD_LOG_INFO(( "progress: running" ));
       break;
     default:
@@ -1596,6 +1640,14 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
 
   fd_gui_printf_startup_progress( gui );
   fd_http_server_ws_broadcast( gui->http );
+}
+
+static void
+fd_gui_handle_snapshot_update( fd_gui_t *    gui,
+                               fd_restore_snapshot_update_t const * msg ) {
+  (void)gui;
+  FD_LOG_WARNING(("IN GUI RECVD SNAPSHOT: %lu", msg->slot));
+  return;
 }
 
 static void
@@ -1689,6 +1741,10 @@ fd_gui_plugin_message( fd_gui_t *    gui,
     }
     case FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE: {
       fd_gui_handle_block_engine_update( gui, msg );
+      break;
+    }
+    case FD_PLUGIN_MSG_SNAPSHOT_UPDATE: {
+      fd_gui_handle_snapshot_update( gui, (fd_restore_snapshot_update_t *)msg );
       break;
     }
     default:

@@ -26,6 +26,11 @@ struct fd_sshttp_private {
   fd_ip4_port_t addr;
   int           sockfd;
 
+  /* A copy of the url redirect path is kept after a redirect. This path
+     contains the snapshot slot number */
+  int   has_redirect_path;
+  char  opt_redirect_path[ 4096UL ];
+
   char  request[ 4096UL ];
   ulong request_len;
   ulong request_sent;
@@ -104,6 +109,9 @@ fd_sshttp_init( fd_sshttp_t * http,
                 ulong         path_len,
                 long          now ) {
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
+
+  http->has_redirect_path = 0;
+  fd_memset( http->opt_redirect_path, 0, sizeof(http->opt_redirect_path) );
 
   http->hops = 4UL;
 
@@ -231,6 +239,9 @@ follow_redirect( fd_sshttp_t *        http,
   fd_sshttp_cancel( http );
   fd_sshttp_init( http, http->addr, location, location_len, now );
 
+  fd_cstr_printf( http->opt_redirect_path, sizeof(http->opt_redirect_path), NULL, "%.*s", (int)location_len, location );
+  http->has_redirect_path = 1;
+
   return FD_SSHTTP_ADVANCE_AGAIN;
 }
 
@@ -356,4 +367,9 @@ fd_sshttp_advance( fd_sshttp_t * http,
     case FD_SSHTTP_STATE_DL: return read_body( http, data_len, data );
     default: return 0;
   }
+}
+
+char *
+fd_sshttp_opt_redirect_path( fd_sshttp_t * http ) {
+  return fd_ptr_if( http->has_redirect_path, (char *)http->opt_redirect_path, NULL );
 }

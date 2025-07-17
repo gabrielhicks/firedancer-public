@@ -13,6 +13,7 @@
 #define IN_KIND_VOTEL  (6)
 #define IN_KIND_BUNDLE (7)
 #define IN_KIND_VALCFG (8)
+#define IN_KIND_SNAPRD (9)
 
 typedef struct {
   fd_wksp_t * mem;
@@ -127,6 +128,10 @@ after_frag( fd_plugin_ctx_t *   ctx,
       FD_TEST( sig==FD_PLUGIN_MSG_VALIDATOR_INFO );
       break;
     }
+    case IN_KIND_SNAPRD: {
+      FD_TEST( sig==FD_PLUGIN_MSG_SNAPSHOT_UPDATE );
+      break;
+    }
     default: FD_LOG_ERR(( "bad in_idx" ));
   }
 
@@ -167,6 +172,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "votel_plugin" ) ) ctx->in_kind[ i ] = IN_KIND_VOTEL;
     else if( !strcmp( link->name, "bundle_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
     else if( !strcmp( link->name, "valcfg_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_VALCFG;
+    else if( !strcmp( link->name, "snaprd_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_SNAPRD;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 
