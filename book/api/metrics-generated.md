@@ -474,6 +474,8 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">replay_&#8203;slot</span> | gauge |  |
+| <span class="metrics-name">replay_&#8203;turbine_&#8203;slot</span> | gauge |  |
+| <span class="metrics-name">replay_&#8203;turbine_&#8203;slot0</span> | gauge |  |
 | <span class="metrics-name">replay_&#8203;last_&#8203;voted_&#8203;slot</span> | gauge |  |
 
 </div>
