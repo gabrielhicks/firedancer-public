@@ -119,7 +119,7 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   FD_LOG_INFO(( "schedule->first_normal_epoch = %lu", epoch_schedule->first_normal_epoch ));
   FD_LOG_INFO(( "schedule->first_normal_slot = %lu", epoch_schedule->first_normal_slot ));
 
-  fd_vote_accounts_global_t const *          epoch_vaccs   = fd_bank_epoch_stakes_locking_query( bank );
+  fd_vote_accounts_slim_t const *            epoch_vaccs   = fd_bank_epoch_stakes_locking_query( bank );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_vaccs );
   fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_root = fd_vote_accounts_vote_accounts_root_join( epoch_vaccs );
 

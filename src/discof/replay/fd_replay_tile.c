@@ -305,10 +305,8 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
                        fd_exec_slot_ctx_t *   slot_ctx ) {
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
 
-  fd_vote_accounts_global_t const * epoch_stakes = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( epoch_stakes );
-
-  if( epoch_stakes_root!=NULL ) {
+  fd_vote_accounts_slim_t const * epoch_stakes = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
+  if( epoch_stakes->vote_accounts_cnt>0 ) {
     ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
     ulong epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) );
     ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->runtime_spad, epoch - 1, stake_weights_msg );
@@ -317,13 +315,10 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
     ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
     FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
   }
-
   fd_bank_epoch_stakes_end_locking_query( slot_ctx->bank );
 
-  fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( next_epoch_stakes );
-
-  if( next_epoch_stakes_root!=NULL ) {
+  fd_vote_accounts_slim_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
+  if( next_epoch_stakes->vote_accounts_cnt>0 ) {
     ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
     ulong   epoch             = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) ); /* epoch */
     ulong stake_weights_sz = generate_stake_weight_msg( slot_ctx, ctx->runtime_spad, epoch, stake_weights_msg );
@@ -714,26 +709,23 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     FD_LOG_CRIT(( "Failed to initialize snapshot fork" ));
   }
 
-  fd_stakes_global_t const *        stakes        = fd_bank_stakes_locking_query( ctx->slot_ctx->bank );
-  fd_vote_accounts_global_t const * vote_accounts = &stakes->vote_accounts;
-
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( vote_accounts );
+  fd_stakes_slim_t const *        stakes        = fd_bank_stakes_locking_query( ctx->slot_ctx->bank );
+  fd_vote_accounts_slim_t const * vote_accounts = &stakes->vote_accounts;
+  ulong vec_cnt = vote_accounts->vote_accounts_cnt;
+  fd_vote_account_slim_t const * vote_vec = &vote_accounts->vote_accounts[0];
 
   /* Send to tower tile */
 
   if( FD_LIKELY( ctx->tower_out_idx!=ULONG_MAX ) ) {
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
     ulong   off         = 0;
-    for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
-        curr;
-        curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
-
-      if( FD_UNLIKELY( curr->elem.stake > 0UL ) ) {
-        memcpy( chunk_laddr + off, &curr->elem.key, sizeof(fd_pubkey_t) );
+    for( ulong i=0; i<vec_cnt; i++ ) {
+      fd_vote_account_slim_t const * curr = &vote_vec[i];
+      if( FD_UNLIKELY( curr->stake > 0UL ) ) {
+        memcpy( chunk_laddr + off, &curr->key, sizeof(fd_pubkey_t) );
         off += sizeof(fd_pubkey_t);
 
-        memcpy( chunk_laddr + off, &curr->elem.stake, sizeof(ulong) );
+        memcpy( chunk_laddr + off, &curr->stake, sizeof(ulong) );
         off += sizeof(ulong);
       }
     }
@@ -741,10 +733,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   }
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
-  for( fd_vote_accounts_pair_global_t_mapnode_t * curr = fd_vote_accounts_pair_global_t_map_minimum( vote_accounts_pool, vote_accounts_root );
-       curr;
-       curr = fd_vote_accounts_pair_global_t_map_successor( vote_accounts_pool, curr ) ) {
-    bank_hash_cmp->total_stake += curr->elem.stake;
+  bank_hash_cmp->total_stake = 0UL;
+  for( ulong i=0; i<vec_cnt; i++ ) {
+    fd_vote_account_slim_t const * curr = &vote_vec[i];
+    bank_hash_cmp->total_stake += curr->stake;
   }
   bank_hash_cmp->watermark = snapshot_slot;
 
@@ -948,64 +940,18 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
   fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &bank_slot, NULL, ctx->forks->pool );
   if( FD_UNLIKELY ( !fork  ) ) return;
 
-  fd_vote_accounts_global_t const *          epoch_stakes      = fd_bank_epoch_stakes_locking_query( ctx->slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_stakes );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( epoch_stakes );
+  fd_vote_accounts_slim_t const * epoch_stakes  = fd_bank_epoch_stakes_locking_query( ctx->slot_ctx->bank );
+  ulong vec_cnt = epoch_stakes->vote_accounts_cnt;
+  fd_vote_account_slim_t const * vote_vec = &epoch_stakes->vote_accounts[0];
 
   ulong i = 0;
   FD_SPAD_FRAME_BEGIN( ctx->runtime_spad ) {
-  for( fd_vote_accounts_pair_global_t_mapnode_t const * n = fd_vote_accounts_pair_global_t_map_minimum_const( epoch_stakes_pool, epoch_stakes_root );
-       n && i < FD_CLUSTER_NODE_CNT;
-       n = fd_vote_accounts_pair_global_t_map_successor_const( epoch_stakes_pool, n ) ) {
-    if( n->elem.stake == 0 ) continue;
-
-    uchar * data     = (uchar *)&n->elem.value + n->elem.value.data_offset;
-    ulong   data_len = n->elem.value.data_len;
-
-    int err;
-    fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
-        vote_state_versioned, ctx->runtime_spad,
-        data,
-        data_len,
-        &err );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Unexpected failure in decoding vote state %d", err ));
-    }
-
-    fd_pubkey_t node_pubkey;
-    ulong       commission;
-    ulong       epoch_credits;
-    fd_vote_epoch_credits_t const * _epoch_credits;
-    ulong       root_slot;
-
-    switch( vsv->discriminant ) {
-      case fd_vote_state_versioned_enum_v0_23_5:
-        node_pubkey   = vsv->inner.v0_23_5.node_pubkey;
-        commission    = vsv->inner.v0_23_5.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.v0_23_5.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v0_23_5.epoch_credits );
-        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
-        root_slot     = vsv->inner.v0_23_5.root_slot;
-        break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        node_pubkey   = vsv->inner.v1_14_11.node_pubkey;
-        commission    = vsv->inner.v1_14_11.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.v1_14_11.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.v1_14_11.epoch_credits );
-        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
-        root_slot     = vsv->inner.v1_14_11.root_slot;
-        break;
-      case fd_vote_state_versioned_enum_current:
-        node_pubkey   = vsv->inner.current.node_pubkey;
-        commission    = vsv->inner.current.commission;
-        _epoch_credits = deq_fd_vote_epoch_credits_t_cnt( vsv->inner.current.epoch_credits ) == 0 ? NULL : deq_fd_vote_epoch_credits_t_peek_tail_const( vsv->inner.current.epoch_credits );
-        epoch_credits = _epoch_credits==NULL ? 0UL : _epoch_credits->credits - _epoch_credits->prev_credits;
-        root_slot     = vsv->inner.v0_23_5.root_slot;
-        break;
-      default:
-        __builtin_unreachable();
-    }
+  for( ulong j=0; j<vec_cnt; j++ ) {
+    fd_vote_account_slim_t const * curr = &vote_vec[j];
+    if( curr->stake == 0 ) continue;
 
     fd_clock_timestamp_vote_t_mapnode_t query;
-    memcpy( query.elem.pubkey.uc, n->elem.key.uc, 32UL );
+    memcpy( query.elem.pubkey.uc, curr->key.uc, 32UL );
     fd_clock_timestamp_votes_global_t const * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_query( ctx->slot_ctx->bank );
     fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root  = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes );
     fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool  = fd_clock_timestamp_votes_votes_pool_join( clock_timestamp_votes );
@@ -1014,13 +960,13 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
 
     fd_vote_update_msg_t * msg = (fd_vote_update_msg_t *)(dst + sizeof(ulong) + i*112U);
     memset( msg, 0, 112U );
-    memcpy( msg->vote_pubkey, n->elem.key.uc, sizeof(fd_pubkey_t) );
-    memcpy( msg->node_pubkey, node_pubkey.uc, sizeof(fd_pubkey_t) );
-    msg->activated_stake = n->elem.stake;
+    memcpy( msg->vote_pubkey, curr->key.uc, sizeof(fd_pubkey_t) );
+    memcpy( msg->node_pubkey, curr->node_pubkey.uc, sizeof(fd_pubkey_t) );
+    msg->activated_stake = curr->stake;
     msg->last_vote       = res == NULL ? 0UL : res->elem.slot;
-    msg->root_slot       = root_slot;
-    msg->epoch_credits   = epoch_credits;
-    msg->commission      = (uchar)commission;
+    msg->root_slot       = curr->root_slot;
+    msg->epoch_credits   = curr->epoch_credits;
+    msg->commission      = (uchar)curr->commission;
     msg->is_delinquent   = (uchar)fd_int_if(fd_bank_slot_get( ctx->slot_ctx->bank ) >= 128UL, msg->last_vote <= fd_bank_slot_get( ctx->slot_ctx->bank ) - 128UL, msg->last_vote == 0);
     ++i;
     fd_bank_clock_timestamp_votes_end_locking_query( ctx->slot_ctx->bank );

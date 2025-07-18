@@ -45,10 +45,36 @@ struct fd_accumulate_delegations_task_args {
 };
 typedef struct fd_accumulate_delegations_task_args fd_accumulate_delegations_task_args_t;
 
+struct fd_vote_account_slim {
+  fd_pubkey_t key;
+  fd_pubkey_t node_pubkey;
+  ulong       stake;
+  ulong       commission;
+  ulong       epoch_credits;
+  ulong       root_slot;
+};
+typedef struct fd_vote_account_slim fd_vote_account_slim_t;
+
+#define FD_VOTE_ACCOUNTS_SLIM_MAX (50000)
+struct __attribute__((aligned(64UL))) fd_vote_accounts_slim {
+  /* Accounts are sorted by key, so we can use binary search to find an account */
+  ulong vote_accounts_cnt;
+  fd_vote_account_slim_t vote_accounts[FD_VOTE_ACCOUNTS_SLIM_MAX];
+};
+typedef struct fd_vote_accounts_slim fd_vote_accounts_slim_t;
+#define FD_VOTE_ACCOUNTS_SLIM_ALIGN (64UL)
+
+struct __attribute__((aligned(64UL))) fd_stakes_slim {
+  ulong epoch;
+  fd_vote_accounts_slim_t vote_accounts;
+};
+typedef struct fd_stakes_slim fd_stakes_slim_t;
+#define FD_STAKES_SLIM_ALIGN (64UL)
+
 ulong
-fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
-                          fd_stake_weight_t *               weights,
-                          fd_spad_t *                       runtime_spad );
+fd_stake_weights_by_node( fd_vote_accounts_slim_t const * accs,
+                          fd_stake_weight_t *     weights,
+                          fd_spad_t *             runtime_spad );
 
 
 void
