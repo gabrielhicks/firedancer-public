@@ -955,7 +955,6 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
     fd_clock_timestamp_votes_global_t const * clock_timestamp_votes = fd_bank_clock_timestamp_votes_locking_query( ctx->slot_ctx->bank );
     fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root  = fd_clock_timestamp_votes_votes_root_join( clock_timestamp_votes );
     fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool  = fd_clock_timestamp_votes_votes_pool_join( clock_timestamp_votes );
-
     fd_clock_timestamp_vote_t_mapnode_t * res = fd_clock_timestamp_vote_t_map_find( timestamp_votes_pool, timestamp_votes_root, &query );
 
     fd_vote_update_msg_t * msg = (fd_vote_update_msg_t *)(dst + sizeof(ulong) + i*112U);
@@ -969,6 +968,7 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
     msg->commission      = (uchar)curr->commission;
     msg->is_delinquent   = (uchar)fd_int_if(fd_bank_slot_get( ctx->slot_ctx->bank ) >= 128UL, msg->last_vote <= fd_bank_slot_get( ctx->slot_ctx->bank ) - 128UL, msg->last_vote == 0);
     ++i;
+
     fd_bank_clock_timestamp_votes_end_locking_query( ctx->slot_ctx->bank );
   }
   } FD_SPAD_FRAME_END;
