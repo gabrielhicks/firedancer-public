@@ -105,7 +105,7 @@ slot_in_year_for_inflation( fd_exec_slot_ctx_t * slot_ctx ) {
 
     https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L109 */
 static void
-calculate_stake_points_and_credits( fd_stake_history_t const *     stake_history,
+calculate_stake_points_and_credits( fd_stakes_slim_t const *       stakes,
                                     fd_stake_t const *             stake,
                                     fd_vote_state_versioned_t *    vote_state_versioned,
                                     ulong *                        new_rate_activation_epoch,
@@ -174,7 +174,7 @@ calculate_stake_points_and_credits( fd_stake_history_t const *     stake_history
 
     new_credits_observed = fd_ulong_max( new_credits_observed, final_epoch_credits );
 
-    ulong stake_amount = fd_stake_activating_and_deactivating( &stake->delegation, ele->epoch, stake_history, new_rate_activation_epoch ).effective;
+    ulong stake_amount = fd_stake_activating_and_deactivating( stake->delegation, ele->epoch, stakes, new_rate_activation_epoch ).effective;
 
     points += (uint128)stake_amount * earned_credits;
   }
@@ -186,7 +186,7 @@ calculate_stake_points_and_credits( fd_stake_history_t const *     stake_history
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L127 */
 static int
-calculate_stake_rewards( fd_stake_history_t const *      stake_history,
+calculate_stake_rewards( fd_stakes_slim_t const *        stakes,
                          fd_stake_t const *              stake,
                          fd_vote_state_versioned_t *     vote_state_versioned,
                          ulong                           rewarded_epoch,
@@ -194,7 +194,7 @@ calculate_stake_rewards( fd_stake_history_t const *      stake_history,
                          ulong *                         new_rate_activation_epoch,
                          fd_calculated_stake_rewards_t * result ) {
   fd_calculated_stake_points_t stake_points_result = {0};
-  calculate_stake_points_and_credits( stake_history, stake, vote_state_versioned, new_rate_activation_epoch, &stake_points_result);
+  calculate_stake_points_and_credits( stakes, stake, vote_state_versioned, new_rate_activation_epoch, &stake_points_result);
 
   // Drive credits_observed forward unconditionally when rewards are disabled
   // or when this is the stake's activation epoch
@@ -233,7 +233,7 @@ calculate_stake_rewards( fd_stake_history_t const *      stake_history,
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33 */
 static int
-redeem_rewards( fd_stake_history_t const *      stake_history,
+redeem_rewards( fd_stakes_slim_t const *        stakes,
                 fd_stake_t const *              stake,
                 fd_vote_state_versioned_t *     vote_state_versioned,
                 ulong                           rewarded_epoch,
@@ -241,7 +241,7 @@ redeem_rewards( fd_stake_history_t const *      stake_history,
                 ulong *                         new_rate_activation_epoch,
                 fd_calculated_stake_rewards_t * calculated_stake_rewards) {
 
-  int rc = calculate_stake_rewards( stake_history, stake, vote_state_versioned, rewarded_epoch, point_value, new_rate_activation_epoch, calculated_stake_rewards );
+  int rc = calculate_stake_rewards( stakes, stake, vote_state_versioned, rewarded_epoch, point_value, new_rate_activation_epoch, calculated_stake_rewards );
   if( FD_UNLIKELY( rc!=0 ) ) {
     return rc;
   }
@@ -317,7 +317,7 @@ calculate_points_range( fd_epoch_info_pair_t const *      stake_infos,
                         ulong                             start_idx,
                         ulong                             end_idx ) {
 
-  fd_stake_history_t const *        stake_history                  = task_args->stake_history;
+  fd_stakes_slim_t const *          stakes                  = task_args->stakes;
   ulong *                           new_warmup_cooldown_rate_epoch = task_args->new_warmup_cooldown_rate_epoch;
   ulong                             minimum_stake_delegation       = task_args->minimum_stake_delegation;
 
@@ -358,7 +358,7 @@ calculate_points_range( fd_epoch_info_pair_t const *      stake_infos,
     https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L472 */
 static void
 calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
-                                     fd_stake_history_t const * stake_history,
+                                     fd_stakes_slim_t const *   stakes,
                                      ulong                      rewards,
                                      fd_point_value_t *         result,
                                      fd_epoch_info_t *          temp_info ) {
@@ -382,7 +382,7 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
   }
 
   fd_calculate_points_task_args_t task_args = {
-    .stake_history                  = stake_history,
+    .stakes                         = stakes,
     .new_warmup_cooldown_rate_epoch = new_warmup_cooldown_rate_epoch,
     .minimum_stake_delegation       = minimum_stake_delegation,
     .vote_states_pool               = temp_info->vote_states_pool,
@@ -406,7 +406,7 @@ calculate_stake_vote_rewards_account( fd_epoch_info_t const *                   
 
   fd_epoch_info_pair_t const *                        stake_infos                    = temp_info->stake_infos;
   fd_exec_slot_ctx_t *                                slot_ctx                       = task_args->slot_ctx;
-  fd_stake_history_t const *                          stake_history                  = task_args->stake_history;
+  fd_stakes_slim_t const *                            stakes                         = task_args->stakes;
   ulong                                               rewarded_epoch                 = task_args->rewarded_epoch;
   ulong *                                             new_warmup_cooldown_rate_epoch = task_args->new_warmup_cooldown_rate_epoch;
   fd_point_value_t *                                  point_value                    = task_args->point_value;
@@ -451,7 +451,7 @@ calculate_stake_vote_rewards_account( fd_epoch_info_t const *                   
 
     /* Note, this doesn't actually redeem any rewards.. this is a misnomer. */
     fd_calculated_stake_rewards_t calculated_stake_rewards[1] = {0};
-    int err = redeem_rewards( stake_history,
+    int err = redeem_rewards( stakes,
                               stake,
                               vote_state,
                               rewarded_epoch,
@@ -554,7 +554,7 @@ calculate_stake_vote_rewards_account( fd_epoch_info_t const *                   
    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L334 */
 static void
 calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ctx,
-                              fd_stake_history_t const *                 stake_history,
+                              fd_stakes_slim_t const *                   stakes,
                               ulong                                      rewarded_epoch,
                               fd_point_value_t *                         point_value,
                               fd_calculate_stake_vote_rewards_result_t * result,
@@ -627,7 +627,7 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
 
   fd_calculate_stake_vote_rewards_task_args_t task_args = {
     .slot_ctx                       = slot_ctx,
-    .stake_history                  = stake_history,
+    .stakes                         = stakes,
     .rewarded_epoch                 = rewarded_epoch,
     .new_warmup_cooldown_rate_epoch = new_warmup_cooldown_rate_epoch,
     .point_value                    = point_value,
@@ -646,6 +646,7 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L273 */
 static void
 calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
+                             fd_stakes_slim_t const *                  stakes,
                              ulong                                     rewarded_epoch,
                              ulong                                     rewards,
                              fd_calculate_validator_rewards_result_t * result,
@@ -661,14 +662,14 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
 
   /* Calculate the epoch reward points from stake/vote accounts */
   calculate_reward_points_partitioned( slot_ctx,
-                                       stake_history,
+                                       stakes,
                                        rewards,
                                        &result->point_value,
                                        temp_info );
 
   /* Calculate the stake and vote rewards for each account */
   calculate_stake_vote_rewards( slot_ctx,
-                                stake_history,
+                                stakes,
                                 rewarded_epoch,
                                 &result->point_value,
                                 &result->calculate_stake_vote_rewards_result,
@@ -1156,16 +1157,13 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                      .rewards = epoch_rewards->total_rewards };
 
     /* Populate vote and stake state info from vote and stakes cache for the stake vote rewards calculation */
-    fd_stakes_global_t const *       stakes                 = fd_bank_stakes_locking_query( slot_ctx->bank );
-    fd_delegation_pair_t_mapnode_t * stake_delegations_pool = fd_stakes_stake_delegations_pool_join( stakes );
-    fd_delegation_pair_t_mapnode_t * stake_delegations_root = fd_stakes_stake_delegations_root_join( stakes );
+    fd_stakes_slim_t const *  stakes = fd_bank_stakes_locking_query( slot_ctx->bank );
 
     fd_epoch_info_t epoch_info = {0};
     fd_epoch_info_new( &epoch_info );
 
-    ulong stake_delegation_sz  = fd_delegation_pair_t_map_size( stake_delegations_pool, stake_delegations_root );
     epoch_info.stake_infos_len = 0UL;
-    epoch_info.stake_infos     = fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stake_delegation_sz );
+    epoch_info.stake_infos     = fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, sizeof(fd_epoch_info_pair_t)*stakes->vote_accounts.delegations_pool_cnt );
 
     fd_stake_history_entry_t _accumulator = {
         .effective = 0UL,
@@ -1175,7 +1173,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_accumulate_stake_infos( slot_ctx,
                                stakes,
-                               stake_history,
                                new_warmup_cooldown_rate_epoch,
                                &_accumulator,
                                &epoch_info,
@@ -1187,7 +1184,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
 
     /* NOTE: this is just a workaround for now to correctly populate epoch_info. */
     fd_populate_vote_accounts( slot_ctx,
-                               stake_history,
+                               stakes,
                                new_warmup_cooldown_rate_epoch,
                                &epoch_info,
                                exec_spads,
@@ -1196,7 +1193,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
         (as Agave does). */
     fd_calculate_stake_vote_rewards_result_t calculate_stake_vote_rewards_result[1];
     calculate_stake_vote_rewards( slot_ctx,
-                                  stake_history,
+                                  stakes,
                                   rewarded_epoch,
                                   &point_value,
                                   calculate_stake_vote_rewards_result,

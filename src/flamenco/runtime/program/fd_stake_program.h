@@ -42,9 +42,9 @@ fd_stake_get_state( fd_txn_account_t const * self,
                     fd_stake_state_v2_t *    out );
 
 fd_stake_history_entry_t
-fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
+fd_stake_activating_and_deactivating( ulong                      delegation_idx,
                                       ulong                      target_epoch,
-                                      fd_stake_history_t const * stake_history,
+                                      fd_stakes_slim_t const *   stakes,
                                       ulong *                    new_rate_activation_epoch );
 
 void

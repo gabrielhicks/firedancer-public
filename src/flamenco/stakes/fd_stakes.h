@@ -45,6 +45,17 @@ struct fd_accumulate_delegations_task_args {
 };
 typedef struct fd_accumulate_delegations_task_args fd_accumulate_delegations_task_args_t;
 
+struct fd_delegation_slim {
+  ulong       next; /* ULONG_MAX if last */
+  fd_pubkey_t voter_pubkey;
+  ulong       stake;
+  ulong       activation_epoch;
+  ulong       deactivation_epoch;
+  double      warmup_cooldown_rate;
+};
+typedef struct fd_delegation_slim fd_delegation_slim_t;
+#define FD_DELEGATION_SLIM_ALIGN alignof(fd_delegation_slim_t)
+
 struct fd_vote_account_slim {
   fd_pubkey_t key;
   fd_pubkey_t node_pubkey;
@@ -52,14 +63,18 @@ struct fd_vote_account_slim {
   ulong       commission;
   ulong       epoch_credits;
   ulong       root_slot;
+  ulong       delegations;
 };
 typedef struct fd_vote_account_slim fd_vote_account_slim_t;
 
-#define FD_VOTE_ACCOUNTS_SLIM_MAX (50000)
+#define FD_VOTE_ACCOUNTS_SLIM_MAX (20000)
+#define FD_DELEGATIONS_SLIM_MAX (10000)
 struct __attribute__((aligned(64UL))) fd_vote_accounts_slim {
   /* Accounts are sorted by key, so we can use binary search to find an account */
   ulong vote_accounts_cnt;
+  ulong delegations_pool_cnt;
   fd_vote_account_slim_t vote_accounts[FD_VOTE_ACCOUNTS_SLIM_MAX];
+  fd_delegation_slim_t delegations_pool[FD_DELEGATIONS_SLIM_MAX];
 };
 typedef struct fd_vote_accounts_slim fd_vote_accounts_slim_t;
 #define FD_VOTE_ACCOUNTS_SLIM_ALIGN (64UL)
@@ -109,7 +124,7 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_ac
 
 void
 fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
-                          fd_stake_history_t const * history,
+                          fd_stakes_slim_t const *   stakes,
                           ulong *                    new_rate_activation_epoch,
                           fd_epoch_info_t *          temp_info,
                           fd_spad_t * *              exec_spads,
@@ -119,7 +134,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
    https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L299 */
 void
 fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
-                          fd_stake_history_t const * history,
+                          fd_stakes_slim_t const *   stakes,
                           ulong *                    new_rate_activation_epoch,
                           fd_epoch_info_t *          temp_info,
                           fd_spad_t * *              exec_spads,
@@ -127,8 +142,7 @@ fd_populate_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 
 void
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
-                           fd_stakes_global_t const * stakes,
-                           fd_stake_history_t const * history,
+                           fd_stakes_slim_t const *   stakes,
                            ulong *                    new_rate_activation_epoch,
                            fd_stake_history_entry_t * accumulator,
                            fd_epoch_info_t *          temp_info,
