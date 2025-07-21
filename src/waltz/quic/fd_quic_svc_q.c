@@ -86,8 +86,6 @@ fd_quic_svc_schedule( fd_quic_svc_timers_t * timers,
   ulong idx    = conn->svc_meta.idx;
   ulong expiry = conn->svc_meta.next_timeout;
 
-  conn->svc_meta.next_timeout = ULONG_MAX; /* reset next_timeout */
-
   if( FD_UNLIKELY( idx != FD_QUIC_SVC_IDX_INVAL ) ) {
     /* find current expiry */
     fd_quic_svc_event_t * event      = timers + idx;
@@ -152,8 +150,9 @@ fd_quic_svc_timers_next( fd_quic_svc_timers_t * timers,
     if( FD_UNLIKELY( now < timers[0].timeout ) ) {
       return next;
     }
-    next                    = timers[0];
-    next.conn->svc_meta.idx = FD_QUIC_SVC_IDX_INVAL;
+    next                             = timers[0];
+    next.conn->svc_meta.idx          = FD_QUIC_SVC_IDX_INVAL;
+    next.conn->svc_meta.next_timeout = ULONG_MAX;
     fd_quic_svc_queue_prq_remove_min( timers );
   } else {
     next = timers[0];
