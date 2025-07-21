@@ -23,8 +23,10 @@ receive contact info:
   - touch last_ci_ticks
 
 Conn closed:
-  - reconnect, unless contact info stale
+  - reconnect
 */
+
+/* 'Staleness' is currently just for debugging - we don't act on it */
 #define CONTACT_INFO_STALE_TICKS (60e9L) /* ~60 seconds */
 
 #define MAP_NAME               fd_send_conn_map
@@ -91,6 +93,8 @@ quic_hs_complete( fd_quic_conn_t * conn,
                   void *           quic_ctx FD_PARAM_UNUSED ) {
   fd_send_conn_entry_t * entry = fd_type_pun( fd_quic_conn_get_context( conn ) );
   if( FD_UNLIKELY( !entry ) ) return;
+  fd_send_tile_ctx_t * ctx = fd_type_pun( quic_ctx );
+  ctx->metrics.quic_hs_complete++;
   FD_LOG_DEBUG(("send_tile: QUIC handshake complete for leader %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key )));
 }
 
@@ -106,12 +110,7 @@ quic_conn_final( fd_quic_conn_t * conn,
     FD_LOG_ERR(( "send_tile: Conn map entry not found in conn_final" ));
   }
 
-  if( ctx->now - entry->last_ci_ticks > CONTACT_INFO_STALE_TICKS ) {
-    /* stale contact info, don't reconnect */
-    entry->conn = NULL;
-    ctx->metrics.contact_stale++;
-    return;
-  }
+  /* TODO: don't reconnect if stale */
 
   uint ip4_addr = entry->ip4_addr;
   FD_LOG_DEBUG(("send_tile: Quic conn final: %p to peer %u.%u.%u.%u:%u", (void*)conn, ip4_addr&0xFF, (ip4_addr>>8)&0xFF, (ip4_addr>>16)&0xFF, (ip4_addr>>24)&0xFF, entry->udp_port));
@@ -159,6 +158,31 @@ quic_tx_aio_send( void *                    _ctx,
   return FD_AIO_SUCCESS;
 }
 
+static void
+during_housekeeping( fd_send_tile_ctx_t * ctx ) {
+  #define MAP_STATS_PERIOD (32UL)
+  if( ctx->housekeeping_ctr++ % MAP_STATS_PERIOD == 0UL ) {
+    ulong const map_cnt = fd_send_conn_map_slot_cnt();
+    ulong staked_no_ci = 0UL;
+    ulong stale_ci = 0UL;
+    ulong map_real_cnt = 0UL;
+    for( ulong i=0UL; i<map_cnt; i++ ) {
+      fd_send_conn_entry_t * entry = &ctx->conn_map[i];
+      if( !fd_send_conn_map_key_equal( entry->pubkey, fd_send_conn_map_key_null() ) ) {
+        map_real_cnt++;
+        if( !entry->got_ci_msg ) {
+          staked_no_ci++;
+        } else if( ctx->now - entry->last_ci_ticks > CONTACT_INFO_STALE_TICKS ) {
+          stale_ci++;
+        }
+      }
+    }
+    ctx->metrics.staked_no_ci = staked_no_ci;
+    ctx->metrics.stale_ci = stale_ci;
+    FD_LOG_INFO(("send_tile map check: %lu/%lu staked, %lu stale", staked_no_ci, map_real_cnt, stale_ci ));
+  }
+}
+
 /* QUIC conn management and wrappers */
 
 fd_quic_conn_t *
@@ -190,8 +214,11 @@ get_quic_conn( fd_send_tile_ctx_t * ctx,
                fd_pubkey_t const *  pubkey ) {
   fd_send_conn_entry_t * entry = fd_send_conn_map_query( ctx->conn_map, *pubkey, NULL );
   if( FD_LIKELY( entry ) ) {
+    if( !entry->got_ci_msg ) ctx->metrics.get_conn_no_ci_msg++;
+    else if( !entry->conn ) ctx->metrics.get_conn_entry_null_conn++;
     return entry->conn;
   }
+  FD_LOG_CRIT(( "Tried looking up connection for an unstaked pubkey"));
   return NULL;
 }
 
@@ -242,25 +269,27 @@ handle_new_contact_info( fd_send_tile_ctx_t   * ctx,
     return;
   }
 
+  entry->got_ci_msg = 1;
+
   int info_changed = (entry->ip4_addr != new_ip) | (entry->udp_port != new_port);
   entry->ip4_addr  = new_ip;
   entry->udp_port  = new_port;
 
-  if( entry->conn && !info_changed ) {
-    ctx->metrics.new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_NO_CHANGE_IDX]++;
-    return;
-  }
-
-  if( FD_UNLIKELY( entry->conn && info_changed ) ) {
-    /* close conn, will restart with new contact info */
+  if( !entry->conn ) {
+    /* NO_CONN -> CONN */
+    ctx->metrics.new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_CONNECT_IDX]++;
+    quic_connect( ctx, entry );
+  } else if( info_changed ) {
+    /* close old conn, start new one */
+    ctx->metrics.new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_CHANGED_IDX]++;
     fd_quic_conn_close( entry->conn, 0 );
     entry->conn = NULL;
-    ctx->metrics.new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_CHANGED_IDX]++;
+    quic_connect( ctx, entry );
+  } else {
+    ctx->metrics.new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_NO_CHANGE_IDX]++;
   }
 
   entry->last_ci_ticks = ctx->now;
-  quic_connect( ctx, entry );
-  ctx->metrics.new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_CONNECT_IDX]++;
   return;
 }
 
@@ -296,6 +325,10 @@ finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
       FD_LOG_DEBUG(("send_tile: creating new entry for pubkey %s", FD_BASE58_ENC_32_ALLOCA( pubkey.key )));
       entry = fd_send_conn_map_insert( ctx->conn_map, pubkey );
       entry->conn = NULL;
+      entry->last_ci_ticks = 0;
+      entry->ip4_addr = 0;
+      entry->udp_port = 0;
+      entry->got_ci_msg = 0;
     }
   }
 }
@@ -345,6 +378,9 @@ during_frag( fd_send_tile_ctx_t * ctx,
   if( FD_UNLIKELY( kind==IN_KIND_GOSSIP ) ) {
     if( sz>sizeof(fd_shred_dest_wire_t)*MAX_STAKED_LEADERS ) {
       FD_LOG_ERR(( "sz %lu >= max expected gossip update size %lu", sz, sizeof(fd_shred_dest_wire_t) * MAX_STAKED_LEADERS ));
+    }
+    if( FD_UNLIKELY( sz%sizeof(fd_shred_dest_wire_t)!=0UL ) ) {
+      FD_LOG_ERR(( "sz %lu is not a multiple of sizeof(fd_shred_dest_wire_t) %lu", sz, sizeof(fd_shred_dest_wire_t) ));
     }
     ctx->contact_cnt = sz / sizeof(fd_shred_dest_wire_t);
     fd_memcpy( ctx->contact_buf, dcache_entry, sz );
@@ -437,7 +473,6 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( tile->send.identity_key_path, /* pubkey only: */ 1 ) );
-  FD_LOG_NOTICE(( "identity_key: %s", FD_BASE58_ENC_32_ALLOCA( ctx->identity_key[ 0 ].key ) ));
 }
 
 static fd_send_link_in_t *
@@ -602,9 +637,13 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
   FD_MCNT_SET( SEND, LEADER_NOT_FOUND,        ctx->metrics.leader_not_found        );
   FD_MCNT_SET( SEND, CONTACT_STALE,           ctx->metrics.contact_stale           );
   FD_MCNT_SET( SEND, QUIC_CONN_CREATE_FAILED, ctx->metrics.quic_conn_create_failed );
-
+  FD_MCNT_SET( SEND, GET_CONN_NO_CI_MSG, ctx->metrics.get_conn_no_ci_msg );
+  FD_MCNT_SET( SEND, GET_CONN_ENTRY_NULL_CONN, ctx->metrics.get_conn_entry_null_conn );
+  FD_MCNT_SET( SEND, HANDSHAKE_COMPLETE, ctx->metrics.quic_hs_complete );
   FD_MCNT_ENUM_COPY( SEND, NEW_CONTACT_INFO, ctx->metrics.new_contact_info );
   FD_MCNT_ENUM_COPY( SEND, QUIC_SEND_RESULT, ctx->metrics.quic_send_result_cnt );
+  FD_MGAUGE_SET( SEND, STAKED_NO_CI, ctx->metrics.staked_no_ci );
+  FD_MGAUGE_SET( SEND, STALE_CI, ctx->metrics.stale_ci );
 
   FD_MHIST_COPY( SEND, SIGN_DURATION_SECONDS, ctx->metrics.sign_duration );
 
@@ -656,10 +695,11 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_send_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_send_tile_ctx_t)
 
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_BEFORE_CREDIT before_credit
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_send = {

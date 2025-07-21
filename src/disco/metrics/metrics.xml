@@ -260,6 +260,11 @@ metric introduced.
     <counter name="ContactStale" summary="Total number of reconnects skipped due to stale contact info" />
     <counter name="QuicSendResult" enum="TxnQuicSendResult" summary="Total number of transactions we attempted to send via QUIC" />
     <counter name="QuicConnCreateFailed" summary="Total number of QUIC connection creation failures" />
+    <counter name="GetConnNoCiMsg" summary="Total number of times we tried to get a connection but no contact info message was received" />
+    <counter name="GetConnEntryNullConn" summary="Total number of times we tried to get a connection but the entry had no connection" />
+    <counter name="HandshakeComplete" summary="Total number of times we completed a handshake" />
+    <gauge name="StakedNoCi" summary="Last counted # staked accounts without contact info" />
+    <gauge name="StaleCi" summary="Last counted # staked accounts with stale contact info" />
 
     <!-- QUIC packet metrics -->
     <counter name="ReceivedPackets" summary="Total count of QUIC packets received" />

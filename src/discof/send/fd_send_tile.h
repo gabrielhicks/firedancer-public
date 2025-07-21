@@ -26,8 +26,8 @@
 /* Send votes to leaders for next SEND_TO_LEADER_CNT slots */
 #define SEND_TO_LEADER_CNT 4UL
 
-#define QUIC_IDLE_TIMEOUT_NS (2e9)  /* 2 seconds */
-#define QUIC_ACK_DELAY_NS    (25e6) /* 25ms */
+#define QUIC_IDLE_TIMEOUT_NS (100e9)  /* 100 seconds */
+#define QUIC_ACK_DELAY_NS    (2e6) /* 2ms */
 
 struct fd_send_link_in {
   fd_wksp_t *  mem;
@@ -57,6 +57,7 @@ struct fd_send_conn_entry {
   long             last_ci_ticks;
   uint             ip4_addr;
   ushort           udp_port;
+  int              got_ci_msg;
 };
 typedef struct fd_send_conn_entry fd_send_conn_entry_t;
 
@@ -94,6 +95,8 @@ struct fd_send_tile_ctx {
   /* Connection map for outgoing QUIC connections and contact info */
   fd_send_conn_entry_t * conn_map;
 
+  ulong housekeeping_ctr;
+
   fd_stem_context_t * stem;
   long                now;
 
@@ -101,6 +104,11 @@ struct fd_send_tile_ctx {
     ulong leader_not_found;        /* Number of times slot leader not found when voting. */
     ulong contact_stale;           /* Number of reconnects skipped due to stale contact info */
     ulong quic_conn_create_failed; /* QUIC connection creation failed */
+    ulong get_conn_no_ci_msg;
+    ulong get_conn_entry_null_conn;
+    ulong quic_hs_complete;
+    ulong staked_no_ci;
+    ulong stale_ci;
 
     /* Handling of new contact info */
     ulong new_contact_info[FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_CNT];

@@ -741,6 +741,11 @@
 | <span class="metrics-name">send_&#8203;quic_&#8203;send_&#8203;result</span><br/>{txn_&#8203;quic_&#8203;send_&#8203;result="<span class="metrics-enum">no_&#8203;conn</span>"} | counter | Total number of transactions we attempted to send via QUIC (No QUIC connection) |
 | <span class="metrics-name">send_&#8203;quic_&#8203;send_&#8203;result</span><br/>{txn_&#8203;quic_&#8203;send_&#8203;result="<span class="metrics-enum">no_&#8203;stream</span>"} | counter | Total number of transactions we attempted to send via QUIC (No QUIC stream) |
 | <span class="metrics-name">send_&#8203;quic_&#8203;conn_&#8203;create_&#8203;failed</span> | counter | Total number of QUIC connection creation failures |
+| <span class="metrics-name">send_&#8203;get_&#8203;conn_&#8203;no_&#8203;ci_&#8203;msg</span> | counter | Total number of times we tried to get a connection but no contact info message was received |
+| <span class="metrics-name">send_&#8203;get_&#8203;conn_&#8203;entry_&#8203;null_&#8203;conn</span> | counter | Total number of times we tried to get a connection but the entry had no connection |
+| <span class="metrics-name">send_&#8203;handshake_&#8203;complete</span> | counter | Total number of times we completed a handshake |
+| <span class="metrics-name">send_&#8203;staked_&#8203;no_&#8203;ci</span> | gauge | Last counted # staked accounts without contact info |
+| <span class="metrics-name">send_&#8203;stale_&#8203;ci</span> | gauge | Last counted # staked accounts with stale contact info |
 | <span class="metrics-name">send_&#8203;received_&#8203;packets</span> | counter | Total count of QUIC packets received |
 | <span class="metrics-name">send_&#8203;received_&#8203;bytes</span> | counter | Total bytes received via QUIC |
 | <span class="metrics-name">send_&#8203;sent_&#8203;packets</span> | counter | Total count of QUIC packets sent |
