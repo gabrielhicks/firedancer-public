@@ -347,7 +347,7 @@ union fd_quic_metrics {
     ulong pkt_oversz_cnt;          /* number of QUIC packets dropped due to being too large */
     ulong pkt_decrypt_fail_cnt[4]; /* number of packets that failed decryption due to auth tag */
     ulong pkt_no_key_cnt[4];       /* number of packets that failed decryption due to missing key */
-    ulong pkt_no_conn_cnt;         /* number of packets with unknown conn ID (excl. Initial) */
+    ulong pkt_no_conn_cnt[4];      /* number of packets with unknown conn ID (initial, retry, hs, 1-RTT) */
     ulong frame_tx_alloc_cnt[3];   /* number of pkt_meta alloc successes, fails for empty pool, fails at conn max */
     ulong pkt_verneg_cnt;          /* number of QUIC version negotiation packets or packets with wrong version */
     ulong pkt_retransmissions_cnt; /* number of pkt_meta retries */

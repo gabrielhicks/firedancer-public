@@ -1451,7 +1451,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     if( quic->config.role == FD_QUIC_ROLE_CLIENT ) {
       /* connection may have been torn down */
       FD_DEBUG( FD_LOG_DEBUG(( "unknown connection ID" )); )
-      metrics->pkt_no_conn_cnt++;
+      metrics->pkt_no_conn_cnt[ fd_quic_enc_level_initial_id ]++;
+      FD_DTRACE_PROBE_2( fd_quic_handle_v1_initial_no_conn , state->now, pkt->pkt_number );
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -1796,7 +1797,9 @@ fd_quic_handle_v1_handshake(
     ulong            cur_sz
 ) {
   if( FD_UNLIKELY( !conn ) ) {
-    quic->metrics.pkt_no_conn_cnt++;
+    quic->metrics.pkt_no_conn_cnt[ fd_quic_enc_level_handshake_id ]++;
+    fd_quic_state_t * state = fd_quic_get_state( quic );
+    FD_DTRACE_PROBE_2( fd_quic_handle_v1_handshake_no_conn , state->now, pkt->pkt_number );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -1954,7 +1957,9 @@ fd_quic_handle_v1_retry(
   }
 
   if( FD_UNLIKELY( !conn ) ) {
-    quic->metrics.pkt_no_conn_cnt++;
+    fd_quic_state_t * state = fd_quic_get_state( quic );
+    FD_DTRACE_PROBE_2( fd_quic_handle_v1_retry_no_conn , state->now, pkt->pkt_number );
+    quic->metrics.pkt_no_conn_cnt[1]++;
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -2077,7 +2082,9 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
                            uchar *    const cur_ptr,
                            ulong      const tot_sz ) {
   if( !conn ) {
-    quic->metrics.pkt_no_conn_cnt++;
+    quic->metrics.pkt_no_conn_cnt[ fd_quic_enc_level_appdata_id ]++;
+    fd_quic_state_t * state = fd_quic_get_state( quic );
+    FD_DTRACE_PROBE_2( fd_quic_handle_v1_one_rtt_no_conn , state->now, pkt->pkt_number );
     return FD_QUIC_PARSE_FAIL;
   }
   if( FD_UNLIKELY( conn->state==FD_QUIC_CONN_STATE_INVALID ||
