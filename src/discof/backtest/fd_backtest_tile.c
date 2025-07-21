@@ -300,8 +300,8 @@ rocksdb_notify_one_batch( ctx_t * ctx, fd_stem_context_t * stem ) {
     if( FD_UNLIKELY( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ) ) {
       int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
       /* Notify the replay tile after inserting a FEC set */
-      ulong sig             = fd_disco_repair_replay_sig( shred->slot, (ushort)(shred->slot - ctx->rocksdb_slot_meta.parent_slot), cnt, slot_complete );
-      ulong tspub           = fd_frag_meta_ts_comp( fd_tickcount() );
+      ulong sig   = fd_disco_repair_replay_sig( shred->slot, (ushort)(shred->slot - ctx->rocksdb_slot_meta.parent_slot), cnt, slot_complete );
+      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       fd_stem_publish( stem, REPLAY_OUT_IDX, sig, 0, 0, 0, tspub, tspub );
       break;
     }
@@ -499,6 +499,7 @@ rocksdb_bank_hash_check( ctx_t * ctx, ulong slot, fd_hash_t * bank_hash ) {
     if( FD_LIKELY( !memcmp( bank_hash, &versioned->inner.current.frozen_hash, sizeof(fd_hash_t) ) ) ) {
       FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%s", slot, FD_BASE58_ENC_32_ALLOCA( bank_hash->hash ) ));
     } else {
+      /* Do not change this log as it is used in offline replay */
       FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s",
                   slot,
                   FD_BASE58_ENC_32_ALLOCA( versioned->inner.current.frozen_hash.hash ),
@@ -592,7 +593,7 @@ after_frag( ctx_t *             ctx,
   }
 }
 
-#define STEM_BURST                  (1UL)
+#define STEM_BURST                  (2UL)
 #define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
 

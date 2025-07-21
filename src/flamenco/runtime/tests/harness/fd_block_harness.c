@@ -341,12 +341,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   fd_stakes_stake_delegations_pool_update( stakes, stake_delegations_pool );
   fd_stakes_stake_delegations_root_update( stakes, stake_delegations_root );
 
-
-  /* Add accounts to bpf program cache */
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
-
   /* Finish init epoch bank sysvars */
-  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, runner->spad );
+  fd_epoch_schedule_t epoch_schedule_[1];
+  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule_ );
   fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
 
   fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
@@ -355,6 +352,9 @@ fd_runtime_fuzz_block_ctx_create( fd_runtime_fuzz_runner_t *           runner,
   stakes->epoch = fd_slot_to_epoch( epoch_schedule, test_ctx->slot_ctx.prev_slot, NULL );
 
   fd_bank_stakes_end_locking_modify( slot_ctx->bank );
+
+  /* Add accounts to bpf program cache */
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, runner->spad );
 
   fd_vote_accounts_global_t * vote_accounts = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
   pool_mem = (uchar *)fd_ulong_align_up( (ulong)vote_accounts + sizeof(fd_vote_accounts_global_t), fd_vote_accounts_pair_global_t_map_align() );
@@ -527,37 +527,19 @@ fd_runtime_fuzz_block_ctx_exec( fd_runtime_fuzz_runner_t * runner,
                                 fd_runtime_block_info_t *  block_info ) {
   int res = 0;
 
-  /* Initialize tpool and spad(s) */
-  ulong        worker_max = FD_BLOCK_HARNESS_TPOOL_WORKER_CNT;
-  void *       tpool_mem  = fd_spad_alloc( runner->spad, FD_TPOOL_ALIGN, FD_TPOOL_FOOTPRINT( worker_max ) );
-  fd_tpool_t * tpool      = fd_tpool_init( tpool_mem, worker_max, 0UL );
-  fd_tpool_worker_push( tpool, 1UL );
-
   fd_spad_t * runtime_spad = runner->spad;
-
-  /* Format chunks of memory for the exec spads
-     TODO: This memory needs a better bound. */
-  fd_spad_t * exec_spads[FD_BLOCK_HARNESS_TPOOL_WORKER_CNT] = { 0 };
-  ulong       exec_spads_cnt                                = FD_BLOCK_HARNESS_TPOOL_WORKER_CNT;
-  for( ulong i=0UL; i<worker_max; i++ ) {
-    void *      exec_spad_mem = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( FD_BLOCK_HARNESS_MEM_PER_SPAD ) );
-    fd_spad_t * exec_spad     = fd_spad_join( fd_spad_new( exec_spad_mem, FD_BLOCK_HARNESS_MEM_PER_SPAD ) );
-    exec_spads[i] = exec_spad;
-  }
 
   // Prepare. Execute. Finalize.
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-    fd_rewards_recalculate_partitioned_rewards( slot_ctx, exec_spads, exec_spads_cnt, runtime_spad );
+    fd_rewards_recalculate_partitioned_rewards( slot_ctx, &runtime_spad, 1UL, runtime_spad );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
     int   is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, exec_spads, exec_spads_cnt, runtime_spad, &is_epoch_boundary );
+    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, &runtime_spad, 1UL, runtime_spad, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute_tpool( slot_ctx, NULL, block_info, tpool, exec_spads, exec_spads_cnt, runtime_spad );
+    res = fd_runtime_block_execute( slot_ctx, NULL, block_info, runtime_spad );
   } FD_SPAD_FRAME_END;
-
-  fd_tpool_worker_pop( tpool );
 
   return res;
 }

@@ -37,8 +37,6 @@ struct fd_bincode_decode_ctx {
   void const * data;
   /* End of buffer */
   void const * dataend;
-  /* error code on decode */
-  int err;
 };
 typedef struct fd_bincode_decode_ctx fd_bincode_decode_ctx_t;
 
@@ -512,7 +510,6 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
         FD_LOG_ERR(( "fd_bincode_" #type "_decode failed: out of memory (decode requires %lu+%lu bytes, but only %lu bytes free in spad)", align-1UL, total_sz, fd_spad_mem_free( spad_ ) )); \
       }                                                                \
       out = fd_##type##_decode( mem, &ctx );                           \
-      if( FD_UNLIKELY ( ctx.err != FD_BINCODE_SUCCESS ) ) err = ctx.err; \
       if( psz_ ) *psz_ = (ulong)ctx.data - (ulong)buf_;                \
     }                                                                  \
     if( perr_ ) *perr_ = err;                                          \
@@ -540,7 +537,6 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
         FD_LOG_ERR(( "fd_bincode_" #type "_decode failed: out of memory (decode requires %lu+%lu bytes, but only %lu bytes free in spad)", align-1UL, total_sz, fd_spad_mem_free( spad_ ) )); \
       }                                                                       \
       out = fd_##type##_decode_global( mem, &ctx );                           \
-      if( FD_UNLIKELY ( ctx.err != FD_BINCODE_SUCCESS ) ) err = ctx.err;     \
       if( psz_ ) *psz_ = (ulong)ctx.data - (ulong)buf_;                       \
     }                                                                         \
     if( perr_ ) *perr_ = err;                                                 \
@@ -577,7 +573,6 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
       }                                                                \
       void * mem = fd_scratch_alloc( align, total_sz );                \
       out = fd_##type##_decode( mem, &ctx );                           \
-      if( FD_UNLIKELY ( ctx.err != FD_BINCODE_SUCCESS ) ) err = ctx.err; \
       if( psz_ ) *psz_ = (ulong)ctx.data - (ulong)buf_;                \
     }                                                                  \
     if( perr_ ) *perr_ = err;                                          \
@@ -586,5 +581,32 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
 
 #define fd_bincode_decode_scratch( type, buf, buf_sz, perr ) \
   fd_bincode_decode1_scratch( type, buf, buf_sz, perr, NULL )
+
+/* fd_bincode_decode_static decodes a statically-sized bincode type.
+
+   Example usage:
+
+   fd_epoch_schedule_t es[1]; int err;
+   if( FD_UNLIKELY( fd_bincode_decode_static( epoch_schedule, es, buf, bufsz, &err ) ) ) {
+     ... parse fail ...
+     return;
+   }
+   ... parse success ... */
+
+#define fd_bincode_decode_static( type, out, buf, buf_sz, perr )       \
+  __extension__({                                                      \
+    void const * const buf_    = (buf);                                \
+    ulong        const buf_sz_ = (buf_sz);                             \
+    fd_##type##_t *    res     = NULL;                                 \
+    fd_bincode_decode_ctx_t ctx = {0};                                 \
+    ctx.data    = (void const *)( buf_ );                              \
+    ctx.dataend = (void const *)( (ulong)ctx.data + buf_sz_ );         \
+    ulong total_sz = 0UL;                                              \
+    int err = fd_##type##_decode_footprint( &ctx, &total_sz );         \
+    if( FD_LIKELY( err==FD_BINCODE_SUCCESS ) ) {                       \
+      res = fd_##type##_decode( (out), &ctx );                         \
+    }                                                                  \
+    res;                                                               \
+  })
 
 #endif /* HEADER_fd_src_util_encoders_fd_bincode_h */
