@@ -56,14 +56,23 @@ struct fd_delegation_slim {
 typedef struct fd_delegation_slim fd_delegation_slim_t;
 #define FD_DELEGATION_SLIM_ALIGN alignof(fd_delegation_slim_t)
 
+struct fd_vote_epoch_credits_slim {
+  ulong epoch;
+  ulong credits;
+  ulong prev_credits;
+};
+typedef struct fd_vote_epoch_credits_slim fd_vote_epoch_credits_slim_t;
+
 struct fd_vote_account_slim {
-  fd_pubkey_t key;
-  fd_pubkey_t node_pubkey;
-  ulong       stake;
-  ulong       commission;
-  ulong       epoch_credits;
-  ulong       root_slot;
-  ulong       delegations;
+  fd_pubkey_t                  key;
+  fd_pubkey_t                  node_pubkey;
+  ulong                        stake;
+  ulong                        commission;
+  ulong                        credits_observed;
+  ulong                        epoch_credits_cnt;
+  fd_vote_epoch_credits_slim_t epoch_credits[64];
+  ulong                        root_slot;
+  ulong                        delegations;
 };
 typedef struct fd_vote_account_slim fd_vote_account_slim_t;
 

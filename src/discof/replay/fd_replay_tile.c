@@ -964,7 +964,7 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
     msg->activated_stake = curr->stake;
     msg->last_vote       = res == NULL ? 0UL : res->elem.slot;
     msg->root_slot       = curr->root_slot;
-    msg->epoch_credits   = curr->epoch_credits;
+    msg->epoch_credits   = (curr->epoch_credits_cnt > 0) ? curr->epoch_credits[curr->epoch_credits_cnt-1].credits : 0UL;
     msg->commission      = (uchar)curr->commission;
     msg->is_delinquent   = (uchar)fd_int_if(fd_bank_slot_get( ctx->slot_ctx->bank ) >= 128UL, msg->last_vote <= fd_bank_slot_get( ctx->slot_ctx->bank ) - 128UL, msg->last_vote == 0);
     ++i;

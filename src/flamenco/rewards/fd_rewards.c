@@ -106,32 +106,12 @@ slot_in_year_for_inflation( fd_exec_slot_ctx_t * slot_ctx ) {
     https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L109 */
 static void
 calculate_stake_points_and_credits( fd_stakes_slim_t const *       stakes,
-                                    fd_stake_t const *             stake,
-                                    fd_vote_state_versioned_t *    vote_state_versioned,
+                                    fd_vote_account_slim_t *       stake,
                                     ulong *                        new_rate_activation_epoch,
                                     fd_calculated_stake_points_t * result ) {
 
   ulong credits_in_stake = stake->credits_observed;
-
-  fd_vote_epoch_credits_t * epoch_credits;
-  switch( vote_state_versioned->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      epoch_credits = vote_state_versioned->inner.current.epoch_credits;
-      break;
-    case fd_vote_state_versioned_enum_v0_23_5:
-      epoch_credits = vote_state_versioned->inner.v0_23_5.epoch_credits;
-      break;
-    case fd_vote_state_versioned_enum_v1_14_11:
-      epoch_credits = vote_state_versioned->inner.v1_14_11.epoch_credits;
-      break;
-    default:
-      FD_LOG_ERR(( "invalid vote account, should never happen" ));
-  }
-
-  ulong credits_in_vote = 0UL;
-  if( FD_LIKELY( !deq_fd_vote_epoch_credits_t_empty( epoch_credits ) ) ) {
-    credits_in_vote = deq_fd_vote_epoch_credits_t_peek_tail_const( epoch_credits )->credits;
-  }
+  ulong credits_in_vote = stake->epoch_credits[stake->epoch_credits_cnt-1].credits;
 
   /* If the Vote account has less credits observed than the Stake account,
       something is wrong and we need to force an update.
@@ -158,11 +138,8 @@ calculate_stake_points_and_credits( fd_stakes_slim_t const *       stakes,
   /* Calculate the points for each epoch credit */
   uint128 points = 0;
   ulong new_credits_observed = credits_in_stake;
-  for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
-        !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
-        iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
-
-    fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
+  for( ulong i=0; i<stake->epoch_credits_cnt; i++ ) {
+    fd_vote_epoch_credits_slim_t * ele = &stake->epoch_credits[i];
     ulong final_epoch_credits = ele->credits;
     ulong initial_epoch_credits = ele->prev_credits;
     uint128 earned_credits = 0;
@@ -174,7 +151,7 @@ calculate_stake_points_and_credits( fd_stakes_slim_t const *       stakes,
 
     new_credits_observed = fd_ulong_max( new_credits_observed, final_epoch_credits );
 
-    ulong stake_amount = fd_stake_activating_and_deactivating( stake->delegation, ele->epoch, stakes, new_rate_activation_epoch ).effective;
+    ulong stake_amount = fd_stake_activating_and_deactivating( stake->delegations, ele->epoch, stakes, new_rate_activation_epoch ).effective;
 
     points += (uint128)stake_amount * earned_credits;
   }
@@ -187,14 +164,13 @@ calculate_stake_points_and_credits( fd_stakes_slim_t const *       stakes,
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L127 */
 static int
 calculate_stake_rewards( fd_stakes_slim_t const *        stakes,
-                         fd_stake_t const *              stake,
-                         fd_vote_state_versioned_t *     vote_state_versioned,
+                         fd_vote_account_slim_t *        stake,
                          ulong                           rewarded_epoch,
                          fd_point_value_t *              point_value,
                          ulong *                         new_rate_activation_epoch,
                          fd_calculated_stake_rewards_t * result ) {
   fd_calculated_stake_points_t stake_points_result = {0};
-  calculate_stake_points_and_credits( stakes, stake, vote_state_versioned, new_rate_activation_epoch, &stake_points_result);
+  calculate_stake_points_and_credits( stakes, stake, new_rate_activation_epoch, &stake_points_result);
 
   // Drive credits_observed forward unconditionally when rewards are disabled
   // or when this is the stake's activation epoch
