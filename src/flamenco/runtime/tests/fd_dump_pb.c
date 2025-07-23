@@ -445,17 +445,10 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   ulong num_sysvar_entries    = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
   ulong num_loaded_builtins   = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
 
-  fd_account_keys_global_t const *   stake_account_keys      = fd_bank_stake_account_keys_locking_query( slot_ctx->bank );
-  fd_account_keys_pair_t_mapnode_t * stake_account_keys_pool = fd_account_keys_account_keys_pool_join( stake_account_keys );
-  fd_account_keys_pair_t_mapnode_t * stake_account_keys_root = fd_account_keys_account_keys_root_join( stake_account_keys );
+  fd_account_keys_global_t const *   stake_account_keys = fd_bank_stake_account_keys_locking_query( slot_ctx->bank );
 
-
-  fd_stakes_global_t const * stakes = fd_bank_stakes_locking_query( slot_ctx->bank );
-  fd_delegation_pair_t_mapnode_t * stake_delegations_pool = fd_stakes_stake_delegations_pool_join( stakes );
-  fd_delegation_pair_t_mapnode_t * stake_delegations_root = fd_stakes_stake_delegations_root_join( stakes );
-
-  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_pool = fd_vote_accounts_vote_accounts_pool_join( &stakes->vote_accounts );
-  fd_vote_accounts_pair_global_t_mapnode_t * stakes_vote_accounts_root = fd_vote_accounts_vote_accounts_root_join( &stakes->vote_accounts );
+  fd_stakes_slim_t const * stakes = fd_bank_stakes_locking_query( slot_ctx->bank );
+  fd_vote_accounts_slim_t const * vote_accounts = &stakes->vote_accounts;
 
   ulong new_stake_account_cnt = fd_account_keys_pair_t_map_size( stake_account_keys_pool, stake_account_keys_root );
   ulong stake_account_cnt     = fd_delegation_pair_t_map_size( stake_delegations_pool,
@@ -468,18 +461,12 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   fd_bank_stakes_end_locking_query( slot_ctx->bank );
 
 
-  fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_pool = fd_vote_accounts_vote_accounts_pool_join( next_epoch_stakes );
-  fd_vote_accounts_pair_global_t_mapnode_t * next_epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( next_epoch_stakes );
-  ulong vote_account_t_1_cnt  = fd_vote_accounts_pair_global_t_map_size( next_epoch_stakes_pool,
-                                                                         next_epoch_stakes_root );
+  fd_vote_accounts_slim_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
+  ulong vote_account_t_1_cnt  = next_epoch_stakes->vote_accounts_cnt;
   fd_bank_next_epoch_stakes_end_locking_query( slot_ctx->bank );
 
-  fd_vote_accounts_global_t const * epoch_stakes = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_stakes );
-  fd_vote_accounts_pair_global_t_mapnode_t * epoch_stakes_root = fd_vote_accounts_vote_accounts_root_join( epoch_stakes );
-  ulong vote_account_t_2_cnt  = fd_vote_accounts_pair_global_t_map_size( epoch_stakes_pool,
-                                                                         epoch_stakes_root );
+  fd_vote_accounts_slim_t const * epoch_stakes = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
+  ulong vote_account_t_2_cnt  = epoch_stakes->vote_accounts_cnt;
   fd_bank_epoch_stakes_end_locking_query( slot_ctx->bank );
 
   ulong total_num_accounts    = num_sysvar_entries +
