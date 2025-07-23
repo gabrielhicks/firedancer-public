@@ -120,8 +120,6 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   FD_LOG_INFO(( "schedule->first_normal_slot = %lu", epoch_schedule->first_normal_slot ));
 
   fd_vote_accounts_slim_t const *            epoch_vaccs   = fd_bank_epoch_stakes_locking_query( bank );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_pool = fd_vote_accounts_vote_accounts_pool_join( epoch_vaccs );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_root = fd_vote_accounts_vote_accounts_root_join( epoch_vaccs );
 
   ulong epoch    = fd_slot_to_epoch( epoch_schedule, slot, NULL );
   ulong slot0    = fd_epoch_slot0( epoch_schedule, epoch );
@@ -129,7 +127,7 @@ fd_runtime_update_leaders( fd_bank_t * bank,
 
   fd_runtime_update_slots_per_epoch( bank, fd_epoch_slot_cnt( epoch_schedule, epoch ) );
 
-  ulong vote_acc_cnt  = fd_vote_accounts_pair_global_t_map_size( vote_acc_pool, vote_acc_root );
+  ulong vote_acc_cnt = epoch_vaccs->vote_accounts_cnt;
   fd_bank_epoch_stakes_end_locking_query( bank );
 
   fd_stake_weight_t * epoch_weights = fd_spad_alloc_check( runtime_spad, alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
@@ -1502,9 +1500,7 @@ static void
 fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
                              fd_epoch_info_t *    temp_info ) {
 
-  fd_stakes_global_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
-  fd_delegation_pair_t_mapnode_t * stake_delegations_pool = fd_stakes_stake_delegations_pool_join( stakes );
-  fd_delegation_pair_t_mapnode_t * stake_delegations_root = fd_stakes_stake_delegations_root_join( stakes );
+  fd_stakes_slim_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );join( stakes );
 
   /* In one pass, iterate over all the new stake infos and insert the updated values into the epoch stakes cache
       This assumes that there is enough memory pre-allocated for the stakes cache. */
