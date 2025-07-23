@@ -46,12 +46,9 @@ struct fd_accumulate_delegations_task_args {
 typedef struct fd_accumulate_delegations_task_args fd_accumulate_delegations_task_args_t;
 
 struct fd_delegation_slim {
-  ulong       next; /* ULONG_MAX if last */
-  fd_pubkey_t voter_pubkey;
-  ulong       stake;
-  ulong       activation_epoch;
-  ulong       deactivation_epoch;
-  double      warmup_cooldown_rate;
+  ulong           next; /* ULONG_MAX if last */
+  fd_pubkey_t     account;
+  fd_delegation_t delegation;
 };
 typedef struct fd_delegation_slim fd_delegation_slim_t;
 #define FD_DELEGATION_SLIM_ALIGN alignof(fd_delegation_slim_t)
@@ -69,8 +66,6 @@ struct fd_vote_account_slim {
   ulong                        stake;
   ulong                        commission;
   ulong                        root_slot;
-  long                         last_timestamp;
-  ulong                        last_slot;
   ulong                        activation_epoch;
   ulong                        credits_observed;
   ulong                        epoch_credits_cnt;
@@ -83,6 +78,8 @@ struct fd_stake_account_slim {
   ulong                        stake;
   fd_pubkey_t                  owner;
   ulong                        delegations;
+  long                         last_timestamp;
+  ulong                        last_slot;
 };
 typedef struct fd_stake_account_slim fd_stake_account_slim_t;
 

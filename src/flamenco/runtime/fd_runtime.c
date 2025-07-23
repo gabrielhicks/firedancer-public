@@ -55,6 +55,7 @@
 #include "../../disco/pack/fd_pack.h"
 #include "../fd_rwlock.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <ctype.h>
 #include <unistd.h>
@@ -1506,23 +1507,32 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
       This assumes that there is enough memory pre-allocated for the stakes cache. */
   for( ulong idx=temp_info->stake_infos_new_keys_start_idx; idx<temp_info->stake_infos_len; idx++ ) {
     // Fetch and store the delegation associated with this stake account
-    fd_delegation_pair_t_mapnode_t key;
-    key.elem.account = temp_info->stake_infos[idx].account;
-    fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stake_delegations_pool, stake_delegations_root, &key );
-    if( FD_LIKELY( entry==NULL ) ) {
-      entry = fd_delegation_pair_t_map_acquire( stake_delegations_pool );
-      if( FD_UNLIKELY( !entry ) ) {
-        FD_TEST( 0 == fd_delegation_pair_t_map_verify( stake_delegations_pool, stake_delegations_root ) );
-        FD_LOG_CRIT(( "stake_delegations_pool full %lu", fd_delegation_pair_t_map_size( stake_delegations_pool, stake_delegations_root ) ));
+    fd_pubkey_t acct = temp_info->stake_infos[idx].account;
+    fd_stake_account_slim_t * stake = fd_stake_accounts_search( stakes, &acct );
+    if( FD_LIKELY( stake==NULL ) ) {
+      FD_LOG_ERR(( "stake account not found" ));
+      continue;
+    }
+
+    ulong del_idx = stake->delegations;
+    while( del_idx != ULONG_MAX ) {
+      fd_delegation_slim_t * del = &stakes->delegations_pool[del_idx];
+      if( memcmp( &del->key, &acct, sizeof(fd_pubkey_t) ) == 0 ) {
+        break;
       }
-      entry->elem.account    = temp_info->stake_infos[idx].account;
-      entry->elem.delegation = temp_info->stake_infos[idx].stake.delegation;
-      fd_delegation_pair_t_map_insert( stake_delegations_pool, &stake_delegations_root, entry );
+      del_idx = del->next;
+    }
+
+    if( FD_LIKELY( del_idx == ULONG_MAX ) ) {
+      del_idx = stakes->delegations_pool_cnt++;
+      fd_delegation_slim_t * del = &stakes->delegations_pool[del_idx];
+      del->account    = temp_info->stake_infos[idx].account;
+      del->delegation = temp_info->stake_infos[idx].stake.delegation;
+      del->next = stake->delegations;
+      stake->delegations = del_idx;
     }
   }
 
-  fd_stakes_stake_delegations_pool_update( stakes, stake_delegations_pool );
-  fd_stakes_stake_delegations_root_update( stakes, stake_delegations_root );
   fd_bank_stakes_end_locking_modify( slot_ctx->bank );
 
   /* At the epoch boundary, release all of the stake account keys
@@ -1545,9 +1555,8 @@ static void
 fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
 
   /* Copy epoch_bank->next_epoch_stakes into fd_bank_slot_get( slot_ctx->bank )_bank.epoch_stakes */
-  fd_vote_accounts_global_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
-
-  fd_vote_accounts_global_t * epoch_stakes = fd_bank_epoch_stakes_locking_modify( slot_ctx->bank );
+  fd_votes_slim_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
+  fd_votes_slim_t * epoch_stakes = fd_bank_epoch_stakes_locking_modify( slot_ctx->bank );
   fd_memcpy( epoch_stakes, next_epoch_stakes, fd_bank_epoch_stakes_footprint );
   fd_bank_epoch_stakes_end_locking_modify( slot_ctx->bank );
 
@@ -1565,10 +1574,9 @@ fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
      vote accounts in fd_stakes. */
 
   /* Copy stakes->vote_accounts into next_epoch_stakes */
-  fd_stakes_global_t const *        stakes = fd_bank_stakes_locking_query( slot_ctx->bank );
-  fd_vote_accounts_global_t const * vote_stakes = &stakes->vote_accounts;
+  fd_stakes_slim_t const * stakes = fd_bank_stakes_locking_query( slot_ctx->bank );
+  fd_votes_slim_t *        next = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
 
-  fd_vote_accounts_global_t * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_modify( slot_ctx->bank );
   fd_memcpy( next_epoch_stakes, vote_stakes, fd_bank_next_epoch_stakes_footprint );
   fd_bank_next_epoch_stakes_end_locking_modify( slot_ctx->bank );
 
@@ -2124,7 +2132,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                             runtime_spad );
 
   /* Update the stakes epoch value to the new epoch */
-  fd_stakes_global_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
+  fd_stakes_slim_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
   stakes->epoch = epoch;
   fd_bank_stakes_end_locking_modify( slot_ctx->bank );
 
