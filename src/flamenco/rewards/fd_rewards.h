@@ -14,6 +14,7 @@ FD_PROTOTYPES_BEGIN
 
 struct fd_calculate_points_task_args {
   fd_stakes_slim_t const *        stakes;
+  fd_votes_slim_t const *         votes;
   ulong *                         new_warmup_cooldown_rate_epoch;
   ulong                           minimum_stake_delegation;
   fd_vote_info_pair_t_mapnode_t * vote_states_root;
@@ -25,6 +26,7 @@ typedef struct fd_calculate_points_task_args fd_calculate_points_task_args_t;
 struct fd_calculate_stake_vote_rewards_task_args {
   fd_exec_slot_ctx_t *                       slot_ctx;
   fd_stakes_slim_t const *                   stakes;
+  fd_votes_slim_t const *                    votes;
   ulong                                      rewarded_epoch;
   ulong *                                    new_warmup_cooldown_rate_epoch;
   fd_point_value_t *                         point_value;

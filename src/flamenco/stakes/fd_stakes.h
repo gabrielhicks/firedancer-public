@@ -68,38 +68,52 @@ struct fd_vote_account_slim {
   fd_pubkey_t                  node_pubkey;
   ulong                        stake;
   ulong                        commission;
-  ulong                        credits_observed;
-  ulong                        epoch_credits_cnt;
-  fd_vote_epoch_credits_slim_t epoch_credits[64];
   ulong                        root_slot;
   long                         last_timestamp;
   ulong                        last_slot;
   ulong                        activation_epoch;
-  ulong                        delegations;
+  ulong                        credits_observed;
+  ulong                        epoch_credits_cnt;
+  fd_vote_epoch_credits_slim_t epoch_credits[64];
 };
 typedef struct fd_vote_account_slim fd_vote_account_slim_t;
 
+struct fd_stake_account_slim {
+  fd_pubkey_t                  key;
+  ulong                        stake;
+  fd_pubkey_t                  owner;
+  ulong                        delegations;
+};
+typedef struct fd_stake_account_slim fd_stake_account_slim_t;
+
 #define FD_VOTE_ACCOUNTS_SLIM_MAX (20000)
-#define FD_DELEGATIONS_SLIM_MAX (10000)
-struct __attribute__((aligned(64UL))) fd_vote_accounts_slim {
+struct __attribute__((aligned(64UL))) fd_votes_slim {
   /* Accounts are sorted by key, so we can use binary search to find an account */
   ulong vote_accounts_cnt;
-  ulong delegations_pool_cnt;
   fd_vote_account_slim_t vote_accounts[FD_VOTE_ACCOUNTS_SLIM_MAX];
-  fd_delegation_slim_t delegations_pool[FD_DELEGATIONS_SLIM_MAX];
 };
-typedef struct fd_vote_accounts_slim fd_vote_accounts_slim_t;
+typedef struct fd_votes_slim fd_votes_slim_t;
 #define FD_VOTE_ACCOUNTS_SLIM_ALIGN (64UL)
+
+fd_vote_account_slim_t * fd_vote_accounts_search( fd_votes_slim_t const * accts, fd_pubkey_t const * key );
+
+#define FD_DELEGATIONS_SLIM_MAX (10000)
+#define FD_STAKE_ACCOUNTS_SLIM_MAX (50000)
 
 struct __attribute__((aligned(64UL))) fd_stakes_slim {
   ulong epoch;
-  fd_vote_accounts_slim_t vote_accounts;
+  ulong stake_accounts_cnt;
+  ulong delegations_pool_cnt;
+  fd_stake_account_slim_t stake_accounts[FD_STAKE_ACCOUNTS_SLIM_MAX];
+  fd_delegation_slim_t delegations_pool[FD_DELEGATIONS_SLIM_MAX];
 };
 typedef struct fd_stakes_slim fd_stakes_slim_t;
 #define FD_STAKES_SLIM_ALIGN (64UL)
 
+fd_stake_account_slim_t * fd_stake_accounts_search( fd_stakes_slim_t const * accts, fd_pubkey_t const * key );
+
 ulong
-fd_stake_weights_by_node( fd_vote_accounts_slim_t const * accs,
+fd_stake_weights_by_node( fd_votes_slim_t const * accs,
                           fd_stake_weight_t *     weights,
                           fd_spad_t *             runtime_spad );
 

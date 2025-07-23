@@ -1500,7 +1500,7 @@ static void
 fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
                              fd_epoch_info_t *    temp_info ) {
 
-  fd_stakes_slim_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );join( stakes );
+  fd_stakes_slim_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
 
   /* In one pass, iterate over all the new stake infos and insert the updated values into the epoch stakes cache
       This assumes that there is enough memory pre-allocated for the stakes cache. */
@@ -3161,4 +3161,3 @@ fd_runtime_block_execute_finalize_sequential( fd_exec_slot_ctx_t *             s
 
   return 0;
 }
-

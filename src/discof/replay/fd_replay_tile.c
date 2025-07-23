@@ -305,7 +305,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
                        fd_exec_slot_ctx_t *   slot_ctx ) {
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
 
-  fd_vote_accounts_slim_t const * epoch_stakes = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
+  fd_votes_slim_t const * epoch_stakes = fd_bank_epoch_stakes_locking_query( slot_ctx->bank );
   if( epoch_stakes->vote_accounts_cnt>0 ) {
     ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
     ulong epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) );
@@ -317,7 +317,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
   }
   fd_bank_epoch_stakes_end_locking_query( slot_ctx->bank );
 
-  fd_vote_accounts_slim_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
+  fd_votes_slim_t const * next_epoch_stakes = fd_bank_next_epoch_stakes_locking_query( slot_ctx->bank );
   if( next_epoch_stakes->vote_accounts_cnt>0 ) {
     ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
     ulong   epoch             = fd_slot_to_leader_schedule_epoch( epoch_schedule, fd_bank_slot_get( slot_ctx->bank ) ); /* epoch */
@@ -710,9 +710,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   }
 
   fd_stakes_slim_t const *        stakes        = fd_bank_stakes_locking_query( ctx->slot_ctx->bank );
-  fd_vote_accounts_slim_t const * vote_accounts = &stakes->vote_accounts;
-  ulong vec_cnt = vote_accounts->vote_accounts_cnt;
-  fd_vote_account_slim_t const * vote_vec = &vote_accounts->vote_accounts[0];
+  fd_stake_account_slim_t const * stake_accounts = &stakes->stake_accounts[0];
+  ulong vec_cnt = stakes->stake_accounts_cnt;
+  fd_stake_account_slim_t const * stake_vec = &stake_accounts[0];
 
   /* Send to tower tile */
 
@@ -720,7 +720,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
     ulong   off         = 0;
     for( ulong i=0; i<vec_cnt; i++ ) {
-      fd_vote_account_slim_t const * curr = &vote_vec[i];
+      fd_stake_account_slim_t const * curr = &stake_vec[i];
       if( FD_UNLIKELY( curr->stake > 0UL ) ) {
         memcpy( chunk_laddr + off, &curr->key, sizeof(fd_pubkey_t) );
         off += sizeof(fd_pubkey_t);
@@ -735,7 +735,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx,
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
   bank_hash_cmp->total_stake = 0UL;
   for( ulong i=0; i<vec_cnt; i++ ) {
-    fd_vote_account_slim_t const * curr = &vote_vec[i];
+    fd_stake_account_slim_t const * curr = &stake_vec[i];
     bank_hash_cmp->total_stake += curr->stake;
   }
   bank_hash_cmp->watermark = snapshot_slot;
@@ -940,7 +940,7 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
   fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &bank_slot, NULL, ctx->forks->pool );
   if( FD_UNLIKELY ( !fork  ) ) return;
 
-  fd_vote_accounts_slim_t const * epoch_stakes  = fd_bank_epoch_stakes_locking_query( ctx->slot_ctx->bank );
+  fd_votes_slim_t const * epoch_stakes  = fd_bank_epoch_stakes_locking_query( ctx->slot_ctx->bank );
   ulong vec_cnt = epoch_stakes->vote_accounts_cnt;
   fd_vote_account_slim_t const * vote_vec = &epoch_stakes->vote_accounts[0];
 

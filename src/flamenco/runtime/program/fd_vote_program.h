@@ -83,7 +83,7 @@ struct fd_commission_split {
 typedef struct fd_commission_split fd_commission_split_t;
 
 void
-fd_vote_commission_split( fd_vote_account_slim_t const * stake,
+fd_vote_commission_split( fd_vote_account_slim_t const * vote,
                           ulong                          rewards,
                           fd_commission_split_t *        result );
 
