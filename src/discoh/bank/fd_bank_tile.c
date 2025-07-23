@@ -172,7 +172,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     void * abi_txn_sidecar = ctx->txn_sidecar_mem + sidecar_footprint_bytes;
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
-    int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, slot, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) );
+    int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, slot, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) ); 
+    if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) )) FD_LOG_WARNING(("frankendancer nonvote encountered slot=%lu", slot ));
     ctx->metrics.txn_load_address_lookup_tables[ result ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) continue;
 
