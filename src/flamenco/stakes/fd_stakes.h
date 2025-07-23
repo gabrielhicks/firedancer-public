@@ -72,6 +72,9 @@ struct fd_vote_account_slim {
   ulong                        epoch_credits_cnt;
   fd_vote_epoch_credits_slim_t epoch_credits[64];
   ulong                        root_slot;
+  long                         last_timestamp;
+  ulong                        last_slot;
+  ulong                        activation_epoch;
   ulong                        delegations;
 };
 typedef struct fd_vote_account_slim fd_vote_account_slim_t;
