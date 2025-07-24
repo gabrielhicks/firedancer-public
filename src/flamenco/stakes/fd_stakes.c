@@ -4,19 +4,37 @@
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 
+void
+fd_stakes_import( fd_stakes_slim_t *                  dst,
+                  fd_solana_manifest_global_t const * manifest ) {
+
+  fd_delegation_pair_t_mapnode_t * src_pool = fd_stakes_stake_delegations_pool_join( &manifest->bank.stakes );
+  fd_delegation_pair_t_mapnode_t * src_root = fd_stakes_stake_delegations_root_join( &manifest->bank.stakes );
+  dst->epoch = manifest->bank.epoch;
+  dst->stake_accounts_cnt = 0UL;
+  for( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum( src_pool, src_root );
+       n;
+       n = fd_delegation_pair_t_map_successor( src_pool, n ) ) {
+    if( dst->stake_accounts_cnt >= FD_STAKE_ACCOUNTS_SLIM_MAX ) {
+      FD_LOG_ERR(( "dst->stake_accounts_cnt >= FD_STAKE_ACCOUNTS_SLIM_MAX" ));
+      return;
+    }
+    fd_stake_account_slim_t * acct = &dst->stake_accounts[dst->stake_accounts_cnt++];
+    acct->key = n->elem.account;
+    acct->delegation = n->elem.delegation;
+  }
+}
+
 /* fd_stakes_accum_by_node converts Stakes (unordered list of (vote acc,
    active stake) tuples) to StakedNodes (rbtree mapping (node identity)
    => (active stake) ordered by node identity).  Returns the tree root. */
 
 static fd_stake_weight_t_mapnode_t *
-fd_stakes_accum_by_node( fd_vote_accounts_global_t const * in,
-                         fd_stake_weight_t_mapnode_t *     out_pool,
-                         fd_spad_t *                       runtime_spad ) {
+fd_stakes_accum_by_node( fd_stakes_slim_t const *      in,
+                         fd_stake_weight_t_mapnode_t * out_pool,
+                         fd_spad_t *                   runtime_spad ) {
 
   /* Stakes::staked_nodes(&self: Stakes) -> HashMap<Pubkey, u64> */
-
-  fd_vote_accounts_pair_global_t_mapnode_t * in_pool = fd_vote_accounts_vote_accounts_pool_join( in );
-  fd_vote_accounts_pair_global_t_mapnode_t * in_root = fd_vote_accounts_vote_accounts_root_join( in );
 
   /* VoteAccounts::staked_nodes(&self: VoteAccounts) -> HashMap<Pubkey, u64> */
 
@@ -25,47 +43,12 @@ fd_stakes_accum_by_node( fd_vote_accounts_global_t const * in,
 
   fd_stake_weight_t_mapnode_t * out_root = NULL;
 
-  for( fd_vote_accounts_pair_global_t_mapnode_t * n = fd_vote_accounts_pair_global_t_map_minimum( in_pool, in_root );
-                                           n;
-                                           n = fd_vote_accounts_pair_global_t_map_successor( in_pool, n ) ) {
-
-    /* ... filter(|(stake, _)| *stake != 0u64) */
-    if( n->elem.stake == 0UL ) continue;
-
-    int err;
-    uchar * data     = fd_solana_account_data_join( &n->elem.value );
-    ulong   data_len = n->elem.value.data_len;
-
-    fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
-        vote_state_versioned, runtime_spad,
-        data,
-        data_len,
-        &err );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Failed to decode vote account %s (%d)", FD_BASE58_ENC_32_ALLOCA( n->elem.key.key ), err ));
-    }
-
-    fd_pubkey_t node_pubkey;
-    switch( vsv->discriminant ) {
-      case fd_vote_state_versioned_enum_v0_23_5:
-        node_pubkey = vsv->inner.v0_23_5.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        node_pubkey = vsv->inner.v1_14_11.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_current:
-        node_pubkey = vsv->inner.current.node_pubkey;
-        break;
-      default:
-        __builtin_unreachable();
-    }
-
-
-    /* Extract node pubkey */
-
+  for( ulong i=0UL; i<in->stake_accounts_cnt; i++ ) {
+    fd_stake_account_slim_t const * n = &in->stake_accounts[i];
+    fd_pubkey_t node_pubkey = n->delegation.voter_pubkey;
     fd_pubkey_t null_key = {0};
     if( memcmp( &node_pubkey, null_key.uc, sizeof(fd_pubkey_t) ) == 0 ) {
-      FD_LOG_WARNING(( "vote account %s skipped", FD_BASE58_ENC_32_ALLOCA( n->elem.key.key ) ));
+      FD_LOG_WARNING(( "vote account %s skipped", FD_BASE58_ENC_32_ALLOCA( n->key ) ));
       continue;
     }
     /* Check if node identity was previously visited */
@@ -75,17 +58,16 @@ fd_stakes_accum_by_node( fd_vote_accounts_global_t const * in,
     }
 
     query->elem.key = node_pubkey;
-
     fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_find( out_pool, out_root, query );
 
     if( FD_UNLIKELY( node ) ) {
       /* Accumulate to previously created entry */
       fd_stake_weight_t_map_release( out_pool, query );
-      node->elem.stake += n->elem.stake;
+      node->elem.stake += n->delegation.stake;
     } else {
       /* Create new entry */
       node = query;
-      node->elem.stake = n->elem.stake;
+      node->elem.stake = n->delegation.stake;
       fd_stake_weight_t_map_insert( out_pool, &out_root, node );
     }
   }
@@ -136,16 +118,13 @@ fd_stakes_export( fd_stake_weight_t_mapnode_t const * const in_pool,
 }
 
 ulong
-fd_stake_weights_by_node( fd_vote_accounts_global_t const * accs,
-                          fd_stake_weight_t *               weights,
-                          fd_spad_t *                       runtime_spad ) {
+fd_stake_weights_by_node( fd_stakes_slim_t const * accs,
+                          fd_stake_weight_t *      weights,
+                          fd_spad_t *              runtime_spad ) {
 
   /* Estimate size required to store temporary data structures */
 
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_pool = fd_vote_accounts_vote_accounts_pool_join( accs );
-  fd_vote_accounts_pair_global_t_mapnode_t * vote_acc_root = fd_vote_accounts_vote_accounts_root_join( accs );
-
-  ulong vote_acc_cnt = fd_vote_accounts_pair_global_t_map_size( vote_acc_pool, vote_acc_root );
+  ulong vote_acc_cnt = accs->stake_accounts_cnt;
 
   ulong rb_align     = fd_stake_weight_t_map_align();
   ulong rb_footprint = fd_stake_weight_t_map_footprint( vote_acc_cnt );
@@ -215,14 +194,11 @@ compute_stake_delegations( fd_epoch_info_t *                temp_info,
                            ulong                            start_idx,
                            ulong                            end_idx ) {
 
-
   fd_spad_t *                      spad                      = task_args->spads[worker_idx];
   fd_epoch_info_pair_t const *     stake_infos               = temp_info->stake_infos;
   ulong                            epoch                     = task_args->epoch;
-  fd_stake_history_t const *       history                   = task_args->stake_history;
+  fd_stakes_slim_t const *         stakes                    = task_args->stakes;
   ulong *                          new_rate_activation_epoch = task_args->new_rate_activation_epoch;
-  fd_stake_weight_t_mapnode_t *    delegation_pool           = task_args->delegation_pool;
-  fd_stake_weight_t_mapnode_t *    delegation_root           = task_args->delegation_root;
   ulong                            vote_states_pool_sz       = task_args->vote_states_pool_sz;
 
   FD_SPAD_FRAME_BEGIN( spad ) {
@@ -234,24 +210,24 @@ compute_stake_delegations( fd_epoch_info_t *                temp_info,
 
   fd_stake_weight_t_mapnode_t temp;
   for( ulong i=start_idx; i<end_idx; i++ ) {
-    fd_delegation_t const * delegation = &stake_infos[i].stake.delegation;
-    temp.elem.key = delegation->voter_pubkey;
+    fd_stake_account_slim_t const * stake_account = &stakes->stake_accounts[i];
+    if( stake_account->stake == 0UL ) continue;
+    ulong delegation_idx = stake_account->delegations;
+    while( delegation_idx != ULONG_MAX ) {
+      fd_delegation_slim_t const * delegation = &stakes->delegations_pool[delegation_idx];
 
-    // Skip any delegations that are not in the delegation pool
-    fd_stake_weight_t_mapnode_t * delegation_entry = fd_stake_weight_t_map_find( delegation_pool, delegation_root, &temp );
-    if( FD_UNLIKELY( delegation_entry==NULL ) ) {
-      continue;
-    }
+      fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, epoch, stakes, new_rate_activation_epoch );
+      fd_stake_weight_t_mapnode_t * delegation_entry = fd_stake_weight_t_map_find( temp_pool, temp_root, &temp );
+      if( FD_UNLIKELY( delegation_entry==NULL ) ) {
+        delegation_entry = fd_stake_weight_t_map_acquire( temp_pool );
+        delegation_entry->elem.key   = delegation->voter_pubkey;
+        delegation_entry->elem.stake = new_entry.effective;
+        fd_stake_weight_t_map_insert( temp_pool, &temp_root, delegation_entry );
+      } else {
+        delegation_entry->elem.stake += new_entry.effective;
+      }
 
-    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, epoch, history, new_rate_activation_epoch );
-    delegation_entry = fd_stake_weight_t_map_find( temp_pool, temp_root, &temp );
-    if( FD_UNLIKELY( delegation_entry==NULL ) ) {
-      delegation_entry = fd_stake_weight_t_map_acquire( temp_pool );
-      delegation_entry->elem.key   = delegation->voter_pubkey;
-      delegation_entry->elem.stake = new_entry.effective;
-      fd_stake_weight_t_map_insert( temp_pool, &temp_root, delegation_entry );
-    } else {
-      delegation_entry->elem.stake += new_entry.effective;
+      delegation_idx = delegation->next;
     }
   }
 

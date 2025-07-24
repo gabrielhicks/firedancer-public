@@ -120,7 +120,7 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   FD_LOG_INFO(( "schedule->first_normal_epoch = %lu", epoch_schedule->first_normal_epoch ));
   FD_LOG_INFO(( "schedule->first_normal_slot = %lu", epoch_schedule->first_normal_slot ));
 
-  fd_vote_accounts_slim_t const *            epoch_vaccs   = fd_bank_epoch_stakes_locking_query( bank );
+  fd_votes_slim_t const * epoch_vaccs   = fd_bank_epoch_stakes_locking_query( bank );
 
   ulong epoch    = fd_slot_to_epoch( epoch_schedule, slot, NULL );
   ulong slot0    = fd_epoch_slot0( epoch_schedule, epoch );
@@ -1517,7 +1517,7 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
     ulong del_idx = stake->delegations;
     while( del_idx != ULONG_MAX ) {
       fd_delegation_slim_t * del = &stakes->delegations_pool[del_idx];
-      if( memcmp( &del->key, &acct, sizeof(fd_pubkey_t) ) == 0 ) {
+      if( memcmp( &del->account, &acct, sizeof(fd_pubkey_t) ) == 0 ) {
         break;
       }
       del_idx = del->next;
@@ -2529,7 +2529,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   /* Derive epoch stakes */
 
-  fd_stakes_global_t * stakes_global = fd_bank_stakes_locking_modify( slot_ctx->bank );
+  fd_stakes_slim_t * stakes_global = fd_bank_stakes_locking_modify( slot_ctx->bank );
 
   uchar * vacc_pool_mem = (uchar *)fd_ulong_align_up( (ulong)stakes_global + sizeof(fd_stakes_global_t), fd_vote_accounts_pair_global_t_map_align() );
   fd_vote_accounts_pair_global_t_mapnode_t * vacc_pool = fd_vote_accounts_pair_global_t_map_join( fd_vote_accounts_pair_global_t_map_new( vacc_pool_mem, 5000UL ) );
@@ -2723,7 +2723,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
 
   stakes_global->epoch  = 0UL;
-  stakes_global->unused = 0UL;
+  stakes_global->stake_accounts_cnt = 0UL;
+  stakes_global->delegations_pool_cnt = 0UL;
 
   fd_vote_accounts_vote_accounts_pool_update( &stakes_global->vote_accounts, vacc_pool );
   fd_vote_accounts_vote_accounts_root_update( &stakes_global->vote_accounts, vacc_root );

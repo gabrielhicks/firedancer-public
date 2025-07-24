@@ -139,7 +139,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *                slot_ctx,
   fd_versioned_bank_global_t const * old_bank = &manifest->bank;
 
   fd_stakes_slim_t * stakes = fd_bank_stakes_locking_modify( slot_ctx->bank );
-
+  fd_stakes_import( stakes, &manifest->bank.stakes.vote_accounts, &manifest->bank.stakes.vote_accounts_pool );
   stakes->epoch = manifest->bank.epoch;
   stakes->stake_accounts_cnt = 0;
   stakes->delegations_pool_cnt = 0;
