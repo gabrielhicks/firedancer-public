@@ -1,3 +1,4 @@
+$(call add-objs,fd_rdisp_simple,fd_discof)
 ifdef FD_HAS_INT128
 ifdef FD_HAS_SSE
 $(call add-objs,fd_replay_tile fd_replay_thread fd_replay,fd_discof)
