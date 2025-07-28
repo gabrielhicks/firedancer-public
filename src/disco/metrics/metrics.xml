@@ -240,11 +240,10 @@ metric introduced.
 
 
 <enum name="NewContactOutcome">
-    <int value="0" name="Connect" label="Initiated connection" />
-    <int value="1" name="Unroutable" label="Skipped (unroutable)" />
-    <int value="2" name="Unstaked" label="Skipped (unstaked)" />
-    <int value="3" name="Changed" label="Contact info changed" />
-    <int value="4" name="NoChange" label="Contact info unchanged" />
+    <int value="0" name="Unroutable" label="Skipped (unroutable)" />
+    <int value="1" name="Unstaked" label="Skipped (unstaked)" />
+    <int value="2" name="Changed" label="Contact info changed" />
+    <int value="3" name="NoChange" label="Contact info unchanged" />
 </enum>
 
 <enum name="TxnQuicSendResult">

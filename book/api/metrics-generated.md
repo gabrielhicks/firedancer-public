@@ -731,7 +731,6 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">send_&#8203;leader_&#8203;not_&#8203;found</span> | counter | Total number of times slot leader not found |
-| <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">connect</span>"} | counter | Total number of contact infos received and handled (Initiated connection) |
 | <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">unroutable</span>"} | counter | Total number of contact infos received and handled (Skipped (unroutable)) |
 | <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">unstaked</span>"} | counter | Total number of contact infos received and handled (Skipped (unstaked)) |
 | <span class="metrics-name">send_&#8203;new_&#8203;contact_&#8203;info</span><br/>{new_&#8203;contact_&#8203;outcome="<span class="metrics-enum">changed</span>"} | counter | Total number of contact infos received and handled (Contact info changed) |

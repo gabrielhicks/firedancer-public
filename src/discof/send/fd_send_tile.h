@@ -24,10 +24,11 @@
 #define IN_KIND_NET    (4UL)
 
 /* Send votes to leaders for next SEND_TO_LEADER_CNT slots */
-#define SEND_TO_LEADER_CNT 4UL
+#define SEND_TO_LEADER_CNT (4UL )
+#define CONNECT_AHEAD_CNT  (10UL)
 
-#define QUIC_IDLE_TIMEOUT_NS (100e9)  /* 100 seconds */
-#define QUIC_ACK_DELAY_NS    (2e6) /* 2ms */
+#define QUIC_IDLE_TIMEOUT_NS (2e9)  /*  2 s  */
+#define QUIC_ACK_DELAY_NS    (25e6) /* 25 ms */
 
 struct fd_send_link_in {
   fd_wksp_t *  mem;
@@ -124,23 +125,5 @@ struct fd_send_tile_ctx {
 
 };
 typedef struct fd_send_tile_ctx fd_send_tile_ctx_t;
-
-
-/* A few larger functions to wrap QUIC interactions */
-
-/* quic_connect initiates a quic connection. It uses the contact info
-   stored in entry, and points the conn and entry to each other. Returns
-   a handle to the new connection, and NULL if creating it failed */
-fd_quic_conn_t *
-quic_connect( fd_send_tile_ctx_t   * ctx,
-              fd_send_conn_entry_t * entry );
-
-/* quic_send sends a payload to 'pubkey' via quic. Requires an already
-   established connection to 'pubkey'. */
-void
-quic_send( fd_send_tile_ctx_t  *  ctx,
-           fd_pubkey_t const   *  pubkey,
-           uchar const         *  payload,
-           ulong                  payload_sz );
 
 #endif
