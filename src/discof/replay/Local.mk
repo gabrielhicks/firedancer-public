@@ -1,5 +1,5 @@
 $(call add-objs,fd_rdisp_simple,fd_discof)
-$(call make-unit-test,test_rdisp,test_rdisp,fd_discof fd_util)
+$(call make-unit-test,test_rdisp,test_rdisp,fd_discof fd_ballet fd_tango fd_util)
 ifdef FD_HAS_INT128
 ifdef FD_HAS_SSE
 $(call add-objs,fd_replay_tile fd_replay_thread fd_replay,fd_discof)
