@@ -694,9 +694,10 @@ fd_quic_svc_schedule( fd_quic_state_t * state,
     FD_LOG_ERR(( "fd_quic_svc_schedule called with invalid conn" ));
   }
 
-  int  is_queued = conn->svc_type < FD_QUIC_SVC_CNT;
-  long cur_delay = (long)conn->svc_time - (long)state->now;
-  long tgt_delay = (long)state->svc_delay[ svc_type ];
+  int  is_queued   = conn->svc_type < FD_QUIC_SVC_CNT;
+  long cur_delay   = (long)conn->svc_time - (long)state->now;
+  long time_to_max = LONG_MAX - (long)state->now;
+  long tgt_delay   = fd_long_if( svc_type==FD_QUIC_SVC_TIMEOUT, time_to_max, (long)state->svc_delay[ svc_type ] );
 
   /* Don't reschedule if already scheduled sooner */
   if( is_queued && cur_delay<=tgt_delay ) return;
@@ -744,12 +745,10 @@ fd_quic_svc_queue_validate( fd_quic_t * quic,
     FD_TEST( conn->svc_time <= now + state->svc_delay[ svc_type ] );
     FD_TEST( conn->svc_prev == prev );
     conn->visited = 1U;
-
     prev = node;
     node = conn->svc_next;
     cnt++;
     FD_TEST( cnt <= quic->limits.conn_cnt );
-
   }
   FD_TEST( prev == state->svc_queue[ svc_type ].head );
 }
@@ -1537,7 +1536,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     }
 
     /* Early check: Is conn free? */
-    if( FD_UNLIKELY( state->free_conn_list==UINT_MAX ) ) {
+    if( FD_UNLIKELY( state->free_conn_list==UINT_MAX && state->svc_queue[FD_QUIC_SVC_TIMEOUT].head==UINT_MAX ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "ignoring conn request: no free conn slots" )) );
       metrics->conn_err_no_slots_cnt++;
       return FD_QUIC_PARSE_FAIL; /* FIXME better error code? */
@@ -2362,6 +2361,14 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     /* this is an error because it causes infinite looping */
     return FD_QUIC_PARSE_FAIL;
   }
+
+  /* If connection is timed out, revive it if packet successfully handled. */
+  if( FD_UNLIKELY( conn && conn->state == FD_QUIC_CONN_STATE_TIMED_OUT ) ) {
+    quic->metrics.conn_timeout_revived_cnt++;
+    fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_ACTIVE );
+    fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_WAIT );
+  }
+
   cur_ptr += rc;
 
   /* if we get here we parsed all the frames, so ack the packet */
@@ -2948,6 +2955,11 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     FD_LOG_ERR(( "Invalid conn in schedule (svc_type=%u)", conn->svc_type ));
     return 1;
   }
+  if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_TIMED_OUT ) ) {
+    /* timed out connection shouldn't be in service queue */
+    FD_LOG_ERR(( "Timed out conn in schedule (svc_type=%u)", conn->svc_type ));
+    return 1;
+  }
 
   //FD_DEBUG( FD_LOG_DEBUG(( "svc_poll conn=%p svc_type=%u", (void *)conn, conn->svc_type )); )
   conn->svc_type = UINT_MAX;
@@ -2964,8 +2976,11 @@ fd_quic_svc_poll( fd_quic_t *      quic,
             conn->server?"SERVER":"CLIENT",
             (void *)conn, conn->conn_idx, (double)fd_quic_ticks_to_us(conn->idle_timeout_ticks) / 1e3 )); )
 
-        fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
+        /* Instead of freeing the connection, move it to TIMED_OUT state and put in timeout queue */
+        fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_TIMED_OUT );
+        fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_TIMEOUT );
         quic->metrics.conn_timeout_cnt++;
+        return 1;
       }
     } else if( quic->config.keep_alive & !!(conn->let_die_ticks > now) ) {
       /* send PING */
@@ -2994,12 +3009,25 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     fd_quic_cb_conn_final( quic, conn ); /* inform user before freeing */
     fd_quic_conn_free( quic, conn );
     break;
+  case FD_QUIC_CONN_STATE_TIMED_OUT:
+    /* already in timeout queue, don't reschedule */
+    break;
   default:
     fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_WAIT );
     break;
   }
 
   return 1;
+}
+
+static void
+fd_quic_svc_pop_head( fd_quic_state_t     * state,
+                      fd_quic_svc_queue_t * queue,
+                      fd_quic_conn_t      * head ) {
+  uint             prev_idx = head->svc_prev;
+  fd_quic_conn_t * prev_ele = fd_quic_conn_at_idx( state, prev_idx );
+  *fd_ptr_if( prev_idx!=UINT_MAX, &prev_ele->svc_next, &queue->tail ) = UINT_MAX;
+  queue->head = prev_idx; /* update head of queue */
 }
 
 static int
@@ -3014,11 +3042,8 @@ fd_quic_svc_poll_head( fd_quic_t * quic,
   fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, queue->head );
   if( conn->svc_time > now ) return 0;
 
-  /* Remove head of queue */
-  uint             prev_idx = conn->svc_prev;
-  fd_quic_conn_t * prev_ele = fd_quic_conn_at_idx( state, prev_idx );
-  *fd_ptr_if( prev_idx!=UINT_MAX, &prev_ele->svc_next, &queue->tail ) = UINT_MAX;
-  queue->head = prev_idx;
+  /* pop head */
+  fd_quic_svc_pop_head( state, queue, conn );
 
   return fd_quic_svc_poll( quic, conn, now );
 }
@@ -4082,6 +4107,19 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
 }
 
 void
+fd_quic_free_timed_out( fd_quic_t * quic ) {
+  fd_quic_state_t     * state = fd_quic_get_state( quic );
+  fd_quic_svc_queue_t * queue = &state->svc_queue[ FD_QUIC_SVC_TIMEOUT ];
+  if( queue->head==UINT_MAX ) return;
+
+  fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, queue->head );
+  fd_quic_svc_pop_head( state, queue, conn );
+
+  quic->metrics.conn_timeout_freed_cnt++;
+  fd_quic_conn_free( quic, conn );
+}
+
+void
 fd_quic_conn_free( fd_quic_t *      quic,
                    fd_quic_conn_t * conn ) {
   if( FD_UNLIKELY( !conn ) ) {
@@ -4294,9 +4332,15 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* fetch top of connection free list */
   uint conn_idx = state->free_conn_list;
   if( FD_UNLIKELY( conn_idx==UINT_MAX ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_conn_create failed: no free conn slots" )) );
-    quic->metrics.conn_err_no_slots_cnt++;
-    return NULL;
+    /* No free connections, try to get one from timeout queue */
+    fd_quic_free_timed_out( quic );
+    conn_idx = state->free_conn_list;
+    if( FD_UNLIKELY( conn_idx==UINT_MAX ) ) {
+      /* still no conns? */
+      FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_conn_create failed: no free conn slots" )) );
+      quic->metrics.conn_err_no_slots_cnt++;
+      return NULL;
+    }
   }
   if( FD_UNLIKELY( conn_idx >= quic->limits.conn_cnt ) ) {
     FD_LOG_ERR(( "Conn free list corruption detected" ));

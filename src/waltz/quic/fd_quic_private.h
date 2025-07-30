@@ -46,7 +46,8 @@
 #define FD_QUIC_SVC_INSTANT (0U)  /* as soon as possible */
 #define FD_QUIC_SVC_ACK_TX  (1U)  /* within local max_ack_delay (ACK TX coalesce) */
 #define FD_QUIC_SVC_WAIT    (2U)  /* within min(idle_timeout, peer max_ack_delay) */
-#define FD_QUIC_SVC_CNT     (3U)  /* number of FD_QUIC_SVC_{...} levels */
+#define FD_QUIC_SVC_TIMEOUT (3U)  /* timeout - never actually serviced */
+#define FD_QUIC_SVC_CNT     (4U)  /* number of FD_QUIC_SVC_{...} levels */
 
 /* fd_quic_svc_queue_t is a simple doubly linked list. */
 
@@ -156,7 +157,7 @@ FD_PROTOTYPES_BEGIN
    pointer to fd_quic_t.  Const func, guaranteed to not access memory. */
 
 FD_FN_CONST static inline fd_quic_state_t *
-fd_quic_get_state( fd_quic_t * quic ) {
+fd_quic_get_state( fd_quic_t const * quic ) {
   return (fd_quic_state_t *)( (ulong)quic + FD_QUIC_STATE_OFF );
 }
 
@@ -208,6 +209,10 @@ fd_quic_svc_schedule1( fd_quic_conn_t * conn,
                        uint             svc_type ) {
   fd_quic_svc_schedule( fd_quic_get_state( conn->quic ), conn, svc_type );
 }
+
+/* Deallocate the oldest timed out connection. Will update the free_conn_list. */
+void
+fd_quic_free_timed_out( fd_quic_t * quic );
 
 /* Memory management **************************************************/
 

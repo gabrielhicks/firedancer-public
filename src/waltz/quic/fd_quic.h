@@ -330,15 +330,17 @@ union fd_quic_metrics {
     ulong retry_tx_cnt;    /* number of Retry packets sent */
 
     /* Conn metrics */
-    ulong conn_alloc_cnt;          /* number of conns currently allocated */
-    ulong conn_created_cnt;        /* number of conns created */
-    ulong conn_closed_cnt;         /* number of conns gracefully closed */
-    ulong conn_aborted_cnt;        /* number of conns aborted */
-    ulong conn_timeout_cnt;        /* number of conns timed out */
-    ulong conn_retry_cnt;          /* number of conns established with retry */
-    ulong conn_err_no_slots_cnt;   /* number of conns that failed to create due to lack of slots */
-    ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
-    ulong conn_state_cnt[ 8 ];     /* current number of conns in each state */
+    ulong conn_alloc_cnt;           /* number of conns currently allocated */
+    ulong conn_created_cnt;         /* number of conns created */
+    ulong conn_closed_cnt;          /* number of conns gracefully closed */
+    ulong conn_aborted_cnt;         /* number of conns aborted */
+    ulong conn_timeout_cnt;         /* number of times a conn timed out */
+    ulong conn_timeout_freed_cnt;   /* number of times a timed out conn was freed */
+    ulong conn_timeout_revived_cnt; /* number of times a timed out conn was revived */
+    ulong conn_retry_cnt;           /* number of conns established with retry */
+    ulong conn_err_no_slots_cnt;    /* number of conns that failed to create due to lack of slots */
+    ulong conn_err_retry_fail_cnt;  /* number of conns that failed during retry (e.g. invalid token) */
+    ulong conn_state_cnt[ 9 ];      /* current number of conns in each state */
 
     /* Packet metrics */
     ulong pkt_net_hdr_err_cnt;      /* number of packets dropped due to weird IPv4/UDP headers */
