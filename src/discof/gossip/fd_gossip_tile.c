@@ -202,9 +202,10 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
     }
-    uchar const * dcache_entry        = (uchar const *)fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    fd_stake_weight_msg_t const * msg = fd_type_pun_const( dcache_entry );
-    fd_memcpy( ctx->stake_weights, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
+    uchar const * dcache_entry             = (uchar const *)fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+    fd_stake_weight_msg_t const *  msg     = fd_type_pun_const( dcache_entry );
+    fd_vote_stake_weight_t const * weights = msg->weights;
+    fd_memcpy( ctx->stake_weights, weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
     ctx->stake_weights_cnt = msg->staked_cnt;
   } else {
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
