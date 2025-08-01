@@ -780,16 +780,16 @@ insert_purged( fd_crds_t *   crds,
 }
 
 /* overrides_fast
-    - returns 1 if candidate overrides existing CRDS value
+    - returns 1 if candidate overrides existing (incumbent) CRDS value
     - returns 0 if candidate does not override existing CRDS value
     - return -1 if further checks are needed (e.g. hash comparison) */
 int
-overrides_fast( fd_crds_entry_t const *             existing,
+overrides_fast( fd_crds_entry_t const *             incumbent,
                 fd_gossip_view_crds_value_t const * candidate,
                 uchar const *                       payload ){
-  long existing_wc        = existing->wallclock_nanos;
+  long existing_wc        = incumbent->wallclock_nanos;
   long candidate_wc       = candidate->wallclock_nanos;
-  long existing_ci_onset  = existing->contact_info.instance_creation_wallclock_nanos;
+  long existing_ci_onset  = incumbent->contact_info.instance_creation_wallclock_nanos;
   long candidate_ci_onset = candidate->contact_info->instance_creation_wallclock_nanos;
 
   switch( candidate->tag ) {
@@ -800,11 +800,11 @@ overrides_fast( fd_crds_entry_t const *             existing,
       else if( FD_UNLIKELY( candidate_wc<existing_wc ) ) return 0;
       break;
     case FD_GOSSIP_VALUE_NODE_INSTANCE:
-      if( FD_LIKELY( !memcmp( payload+candidate->node_instance->token_off, existing->node_instance.token, 32UL ) ) ) break;
-      else if( FD_LIKELY( memcmp( payload+candidate->pubkey_off, existing->key.pubkey, 32UL ) ) ) break;
+      if( FD_LIKELY( !memcmp( payload+candidate->node_instance->token_off, incumbent->node_instance.token, 32UL ) ) ) break;
+      else if( FD_LIKELY( memcmp( payload+candidate->pubkey_off, incumbent->key.pubkey, 32UL ) ) ) break;
       else if( FD_UNLIKELY( candidate_wc>existing_wc ) ) return 1;
       else if( FD_UNLIKELY( candidate_wc<existing_wc ) ) return 0;
-      else if( memcmp( payload+candidate->node_instance->token_off, existing->node_instance.token, 32UL ) < 0 ) return 0;;
+      else if( memcmp( payload+candidate->node_instance->token_off, incumbent->node_instance.token, 32UL ) < 0 ) return 0;;
       break;
     default:
       break;
@@ -845,32 +845,39 @@ fd_crds_checks_fast( fd_crds_t *                         crds,
                      uchar                               from_push_msg ){
   fd_crds_key_t candidate_key;
   generate_key( candidate, payload, &candidate_key );
-  fd_crds_entry_t * existing = lookup_map_ele_query( crds->lookup_map, &candidate_key, NULL, crds->pool );
+  fd_crds_entry_t * incumbent = lookup_map_ele_query( crds->lookup_map, &candidate_key, NULL, crds->pool );
 
-  if( FD_UNLIKELY( !existing ) ) return 0;
+  if( FD_UNLIKELY( !incumbent ) ) return 0;
 
-  if( FD_UNLIKELY( *(ulong *)existing->value_bytes==(*(ulong *)(payload+candidate->value_off)) ) ) {
+  if( FD_UNLIKELY( *(ulong *)incumbent->value_bytes==(*(ulong *)(payload+candidate->value_off)) ) ) {
     /* We have a duplicate, so we return the number of duplicates */
-    return (int)(++existing->num_duplicates);
+    return (int)(++incumbent->num_duplicates);
   }
-  int overrides = overrides_fast( existing, candidate, payload );
+  int overrides = overrides_fast( incumbent, candidate, payload );
+  if( FD_LIKELY( overrides==1 ) ) {
+    return FD_CRDS_UPSERT_CHECK_UPSERTS;
+  }
+  uchar cand_hash[ 32UL ];
+  fd_crds_genrate_hash( payload+candidate->value_off, candidate->length, cand_hash );
 
-  switch( overrides ) {
-    case 1: return FD_CRDS_UPSERT_CHECK_UPSERTS;
-    case 0:
-      {
-        uchar cand_hash[ 32UL ];
-        fd_crds_genrate_hash( payload+candidate->value_off, candidate->length, cand_hash );
-        from_push_msg ? insert_purged( crds, cand_hash, candidate->wallclock_nanos ) :
-                        fd_crds_insert_failed_insert( crds, cand_hash, candidate->wallclock_nanos );
-      }
-      return FD_CRDS_UPSERT_CHECK_FAILS;
-    case -1:
-      crds->metrics->undetermined.crd[ candidate->tag ]++;
-      return FD_CRDS_UPSERT_CHECK_UNDETERMINED;
-    default: FD_LOG_ERR(( "impossible" ));
+  if( FD_UNLIKELY( overrides==-1 ) ) {
+    /* Tiebreaker case, we compare hash values */
+    crds->metrics->undetermined.crd[ candidate->tag ]++;
+    int res = memcmp( cand_hash, incumbent->value_hash, 32UL );
+    if( FD_UNLIKELY( !res ) ) {
+      /* Hashes match, so we treat this as a duplicate */
+      return (int)(++incumbent->num_duplicates);
+    } else if( res>0 ) {
+      /* Candidate hash is greater than incumbent hash, so we treat
+        this as an upsert */
+      return FD_CRDS_UPSERT_CHECK_UPSERTS;
+    }
   }
-  return FD_CRDS_UPSERT_CHECK_UNDETERMINED;
+
+  from_push_msg ? insert_purged( crds, cand_hash, candidate->wallclock_nanos ) :
+                  fd_crds_insert_failed_insert( crds, cand_hash, candidate->wallclock_nanos );
+
+  return FD_CRDS_UPSERT_CHECK_FAILS;
 }
 
 static inline void
@@ -956,17 +963,9 @@ fd_crds_insert( fd_crds_t *                         crds,
                 fd_gossip_view_crds_value_t const * candidate_view,
                 uchar const *                       payload,
                 ulong                               origin_stake,
-                int                                 upsert_check_result,
                 uchar                               is_from_me,
                 long                                now ,
                 fd_stem_context_t *                 stem ) {
-  /* TODO: pointless check? */
-  if( FD_UNLIKELY( !( upsert_check_result==FD_CRDS_UPSERT_CHECK_UPSERTS ||
-                      upsert_check_result==FD_CRDS_UPSERT_CHECK_UNDETERMINED ) ) ) {
-    FD_LOG_ERR(( "Should not call fd_crds_insert if fd_crds_checks_fast returns neither \
-                  FD_CRDS_UPSERT_CHECK_UNDETERMINED nor FD_CRDS_UPSERT_CHECK_PASSED" ));
-  }
-
   /* Update table count metrics at the end to avoid early return
      handling */
   fd_crds_entry_t * candidate = fd_crds_acquire( crds, now, stem );
@@ -978,33 +977,11 @@ fd_crds_insert( fd_crds_t *                         crds,
   }
 
   fd_crds_entry_t * incumbent = lookup_map_ele_query( crds->lookup_map, &candidate->key, NULL, crds->pool );
-  uchar is_replacing = 0UL;
-  if( FD_LIKELY( incumbent ) ) {
-    if( FD_UNLIKELY( upsert_check_result==FD_CRDS_UPSERT_CHECK_UNDETERMINED ) ) {
-      /* tiebreaker used by Agave's Gossip implementation
-         https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/crds.rs#L212-L216 */
-      int res = memcmp( candidate->value_hash, incumbent->value_hash, 32UL );
-      if( res<0 ) {
-        /* incumbent wins */
-        fd_crds_release( crds, candidate );
-        return NULL;
-      } else if( res==0 ) {
-        /* duplicate, incumbent wins
-           TODO: Return number of duplicates?
-           TODO: this technically should not reach here since fd_crds_checks_fast
-           does something similar by comparing signatures, but can be an edge case.
-           We should monitor hits to this code path. */
-        ++incumbent->num_duplicates;
-        fd_crds_release( crds, candidate );
-        return NULL;
-      }
-    }
-    is_replacing = 1;
-
+  uchar is_replacing = incumbent!=NULL;
+  if( FD_LIKELY( is_replacing ) ) {
     insert_purged( crds, incumbent->value_hash, now );
 
     if( FD_UNLIKELY( incumbent->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-
       if( FD_LIKELY( !!incumbent->contact_info.fresh_dlist.in_list ) ) crds_contact_info_fresh_list_ele_remove( crds->contact_info.dlist, incumbent, crds->pool );
       candidate->contact_info.ci = incumbent->contact_info.ci;
 

@@ -616,7 +616,6 @@ rx_pull_response( fd_gossip_t *                          gossip,
                                                         value,
                                                         payload,
                                                         origin_stake,
-                                                        checks_res,
                                                         is_me,
                                                         now,
                                                         stem );
@@ -681,7 +680,6 @@ process_push_crds( fd_gossip_t *                       gossip,
                                                       value,
                                                       payload,
                                                       origin_stake,
-                                                      checks_res,
                                                       is_me,
                                                       now,
                                                       stem );
@@ -1013,7 +1011,6 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
                                     value,
                                     crds_val,
                                     gossip->identity_stake,
-                                    res,
                                     1, /* is_me */
                                     now,
                                     stem ) ) ) {

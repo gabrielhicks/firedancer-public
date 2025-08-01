@@ -17,8 +17,7 @@ struct fd_crds_mask_iter_private;
 typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 
 #define FD_CRDS_UPSERT_CHECK_UPSERTS      ( 0)
-#define FD_CRDS_UPSERT_CHECK_UNDETERMINED (-1)
-#define FD_CRDS_UPSERT_CHECK_FAILS        (-2)
+#define FD_CRDS_UPSERT_CHECK_FAILS        (-1)
 
 #define CRDS_MAX_CONTACT_INFO_LG (15)
 #define CRDS_MAX_CONTACT_INFO    (1<<CRDS_MAX_CONTACT_INFO_LG) /* 32768 */
@@ -140,11 +139,10 @@ fd_crds_checks_fast( fd_crds_t *                         crds,
                      uchar const *                       payload,
                      uchar                               from_push_msg );
 
-/* fd_crds_insert inserts and indexes a CRDS value into the data store as a
-   CRDS entry, so that it can be returned by future queries. upsert_check_result
-   holds the result of fd_crds_checks_fast on candidate. This function should
-   not be called if that result is neither FD_CRDS_UPSERT_CHECK_UPSERTS nor
-   FD_CRDS_UPSERT_CHECK_UNDETERMINED.
+/* fd_crds_insert inserts and indexes a CRDS value into the data store
+   as a CRDS entry, so that it can be returned by future queries. This
+   function should not be called if the result of fd_crds_checks_fast is
+   not FD_CRDS_UPSERT_CHECK_UPSERTS.
 
    On top of inserting the CRDS entry, this function also updates the sidetable
    of ContactInfo entries and the peer samplers if the entry is a ContactInfo.
@@ -165,7 +163,6 @@ fd_crds_insert( fd_crds_t *                         crds,
                 fd_gossip_view_crds_value_t const * candidate_view,
                 uchar const *                       payload,
                 ulong                               origin_stake,
-                int                                 upsert_check_result,
                 uchar                               is_from_me,
                 long                                now,
                 fd_stem_context_t *                 stem );
