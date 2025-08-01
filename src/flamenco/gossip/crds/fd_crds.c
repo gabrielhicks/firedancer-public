@@ -651,7 +651,8 @@ unfresh( fd_crds_t * crds,
 
     if( FD_LIKELY( head->expire.wallclock_nanos>now-60L*1000L*1000L*1000L ) ) break;
 
-    crds_contact_info_fresh_list_ele_pop_head( crds->contact_info.dlist, crds->pool );
+    head = crds_contact_info_fresh_list_ele_pop_head( crds->contact_info.dlist, crds->pool );
+    head->contact_info.fresh_dlist.in_list = 0;
     crds_samplers_upd_peer_at_idx( crds->samplers, head, head->contact_info.sampler_idx, now );
   }
 }
