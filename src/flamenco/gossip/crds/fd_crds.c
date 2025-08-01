@@ -1043,8 +1043,13 @@ fd_crds_insert( fd_crds_t *                         crds,
 
   if( FD_UNLIKELY( candidate->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
     fd_crds_contact_info_init( candidate_view, payload, candidate->contact_info.ci->contact_info );
-    crds_contact_info_fresh_list_ele_push_tail( crds->contact_info.dlist, candidate, crds->pool );
-    candidate->contact_info.fresh_dlist.in_list = 1;
+
+    if( FD_LIKELY( !is_from_me ) ){
+      crds_contact_info_fresh_list_ele_push_tail( crds->contact_info.dlist, candidate, crds->pool );
+      candidate->contact_info.fresh_dlist.in_list = 1;
+    } else {
+      candidate->contact_info.fresh_dlist.in_list = 0;
+    }
 
     if( FD_UNLIKELY( !is_replacing && !is_from_me ) ) {
       crds_samplers_add_peer( crds->samplers, candidate, now);
