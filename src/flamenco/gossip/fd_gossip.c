@@ -15,9 +15,9 @@
 FD_STATIC_ASSERT( FD_GOSSIP_MESSAGE_LAST+1UL==GOSSIP_MESSAGE_TYPES_COUNT,
                   "GOSSIP_MESSAGE_LAST does not match FD_GOSSIP_MESSAGE_LAST+1UL, please update accordingly" );
 
-#define BLOOM_FILTER_MAX_BYTES          (512UL) /* TODO: Calculate for worst case contactinfo */
-#define BLOOM_FALSE_POSITIVE_RATE       (  0.1)
-#define BLOOM_NUM_KEYS                  (  8.0)
+#define BLOOM_FILTER_MAX_BITS           (512UL*8UL) /* TODO: Calculate for worst case contactinfo */
+#define BLOOM_FALSE_POSITIVE_RATE       (      0.1)
+#define BLOOM_NUM_KEYS                  (      8.0)
 
 #define PONG_SIGN_TYPE                  FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519
 #define GOSSIP_SIGN_TYPE                FD_KEYGUARD_SIGN_TYPE_ED25519
@@ -111,7 +111,7 @@ fd_gossip_footprint( ulong max_values ) {
   l = FD_LAYOUT_APPEND( l, fd_crds_align(), fd_crds_footprint( max_values, max_values*4 /* FIXME: figure out better numbers */ ) );
   l = FD_LAYOUT_APPEND( l, fd_active_set_align(), fd_active_set_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
+  l = FD_LAYOUT_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BITS ) );
   l = FD_LAYOUT_APPEND( l, stake_map_align(), stake_map_footprint() );
   l = FD_LAYOUT_APPEND( l, push_set_align(), push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
   l = FD_LAYOUT_FINI( l, fd_gossip_align() );
@@ -151,7 +151,7 @@ fd_gossip_new( void *                    shmem,
   void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(), fd_crds_footprint( max_values, max_values*4 ) );
   void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(), fd_active_set_footprint() );
   void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint() );
-  void * bloom          = FD_SCRATCH_ALLOC_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
+  void * bloom          = FD_SCRATCH_ALLOC_APPEND( l, fd_bloom_align(), fd_bloom_footprint( BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BITS ) );
   void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(), stake_map_footprint() );
   void * active_ps      = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(), push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
 
@@ -163,7 +163,7 @@ fd_gossip_new( void *                    shmem,
   gossip->crds          = fd_crds_join( fd_crds_new( crds, rng, max_values, max_values*4, gossip->metrics->crds_table, gossip_update_out ) );
   gossip->active_set    = fd_active_set_join( fd_active_set_new( active_set, rng ) );
   gossip->ping_tracker  = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng ) );
-  gossip->bloom         = fd_bloom_join( fd_bloom_new( bloom, rng, BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BYTES ) );
+  gossip->bloom         = fd_bloom_join( fd_bloom_new( bloom, rng, BLOOM_FALSE_POSITIVE_RATE, BLOOM_FILTER_MAX_BITS ) );
   gossip->stake_weights = stake_map_join( stake_map_new( stake_weights ) );
   gossip->active_pset   = push_set_join( push_set_new( active_ps, FD_ACTIVE_SET_MAX_PEERS ) );
 
@@ -1065,8 +1065,7 @@ tx_pull_request( fd_gossip_t *       gossip,
   ulong total_crds_vals = fd_crds_len( gossip->crds ) + fd_crds_purged_len( gossip->crds );
   ulong num_items       = fd_ulong_max( 512UL, total_crds_vals );
 
-  double max_bits       = (double)(BLOOM_FILTER_MAX_BYTES*8UL);
-  double max_items      = ceil(max_bits / ( -BLOOM_NUM_KEYS / log( 1.0 - exp( log( BLOOM_FALSE_POSITIVE_RATE ) / BLOOM_NUM_KEYS) )));
+  double max_items      = ceil( (double)BLOOM_FILTER_MAX_BITS / ( -BLOOM_NUM_KEYS / log( 1.0 - exp( log( BLOOM_FALSE_POSITIVE_RATE ) / BLOOM_NUM_KEYS) )));
   double _mask_bits     = ceil( log2( (double)num_items / max_items ) );
   uint mask_bits        = _mask_bits >= 0.0 ? (uint)_mask_bits : 0UL;
   ulong mask            = fd_rng_ulong( gossip->rng ) | (~0UL>>(mask_bits));
