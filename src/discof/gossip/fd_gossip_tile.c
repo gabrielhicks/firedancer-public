@@ -26,35 +26,35 @@ typedef struct {
 } fd_gossip_in_ctx_t;
 
 struct fd_gossip_tile_ctx {
-  fd_gossip_t *        gossip;
-  ulong                gossip_max_entries;
-  fd_contact_info_t    my_contact_info[1];
+  fd_gossip_t *             gossip;
+  ulong                     gossip_max_entries;
+  fd_contact_info_t         my_contact_info[1];
 
-  uint                 rng_seed;
-  ulong                rng_idx;
+  uint                      rng_seed;
+  ulong                     rng_idx;
 
-  double               ticks_per_ns;
-  long                 last_wallclock;
-  long                 last_tickcount;
+  double                    ticks_per_ns;
+  long                      last_wallclock;
+  long                      last_tickcount;
 
-  ulong                stake_weights_cnt;
-  fd_stake_weight_t *  stake_weights;
+  ulong                     stake_weights_cnt;
+  fd_vote_stake_weight_t *  stake_weights;
 
-  uchar                buffer[ FD_NET_MTU ];
+  uchar                     buffer[ FD_NET_MTU ];
 
-  fd_gossip_in_ctx_t   in[ 32UL ];
-  int                  in_kind[ 32UL ];
+  fd_gossip_in_ctx_t        in[ 32UL ];
+  int                       in_kind[ 32UL ];
 
-  fd_gossip_out_ctx_t  net_out[ 1 ];
+  fd_gossip_out_ctx_t       net_out[ 1 ];
 
-  fd_gossip_out_ctx_t  gossip_out[ 1 ];
-  fd_gossip_out_ctx_t  sign_out[ 1 ];
+  fd_gossip_out_ctx_t       gossip_out[ 1 ];
+  fd_gossip_out_ctx_t       sign_out[ 1 ];
 
-  fd_keyguard_client_t keyguard_client[ 1 ];
-  fd_keyswitch_t *     keyswitch;
+  fd_keyguard_client_t      keyguard_client[ 1 ];
+  fd_keyswitch_t *          keyswitch;
 
-  fd_ip4_udp_hdrs_t    net_out_hdr[ 1 ];
-  ushort               net_id;
+  fd_ip4_udp_hdrs_t         net_out_hdr[ 1 ];
+  ushort                    net_id;
 };
 
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
@@ -69,7 +69,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_gossip_align(),             fd_gossip_footprint( tile->gossip.max_entries ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_vote_stake_weight_t) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -204,7 +204,7 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
     }
     uchar const * dcache_entry        = (uchar const *)fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     fd_stake_weight_msg_t const * msg = fd_type_pun_const( dcache_entry );
-    fd_memcpy( ctx->stake_weights, msg->weights, msg->staked_cnt*sizeof(fd_stake_weight_t) );
+    fd_memcpy( ctx->stake_weights, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
     ctx->stake_weights_cnt = msg->staked_cnt;
   } else {
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
@@ -281,13 +281,12 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_gossip_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
-  void * gossip              = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_align(),             fd_gossip_footprint( tile->gossip.max_entries ) );
-  void * _stake_weights      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t) );
+  fd_gossip_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_tile_ctx_t),      sizeof(fd_gossip_tile_ctx_t) );
+  void * gossip              = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_align(),                  fd_gossip_footprint( tile->gossip.max_entries ) );
+  void * _stake_weights      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vote_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_vote_stake_weight_t) );
 
-  // fd_memset( ctx, 0, sizeof(fd_gossip_tile_ctx_t) );
   ctx->gossip_max_entries = tile->gossip.max_entries;
-  ctx->stake_weights    = (fd_stake_weight_t *)_stake_weights;
+  ctx->stake_weights    = (fd_vote_stake_weight_t *)_stake_weights;
   fd_rng_t rng[ 1 ];
   FD_TEST( fd_rng_join( fd_rng_new( rng, ctx->rng_seed, ctx->rng_idx ) ) );
 
