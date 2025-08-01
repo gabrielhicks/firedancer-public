@@ -39,6 +39,7 @@ typedef struct fd_gossip_metrics_crds_insert fd_gossip_metrics_crds_insert_t;
 struct fd_crds_table_metrics {
   ulong                    total_ele_cnt;
   fd_gossip_metrics_crds_t ele_cnt;
+  fd_gossip_metrics_crds_t undetermined;
   ulong                    table_purged_cnt;
 
   ulong                    visible_stake;

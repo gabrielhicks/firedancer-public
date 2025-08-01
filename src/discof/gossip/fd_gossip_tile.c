@@ -143,6 +143,7 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MGAUGE_SET(       GOSSIP, VISIBLE_STAKE,       metrics->crds_table->visible_stake );
   FD_MGAUGE_SET(       GOSSIP, STAKED_PEER_COUNT,   metrics->crds_table->staked_peer_cnt );
   FD_MGAUGE_SET(       GOSSIP, UNSTAKED_PEER_COUNT, metrics->crds_table->unstaked_peer_cnt );
+  FD_MCNT_ENUM_COPY(   GOSSIP, UNDETERMINED_CRDS,   metrics->crds_table->undetermined.crd );
 
   #define COPY_MSG_RX( name, msg_traffic ) \
     FD_MCNT_ENUM_COPY( GOSSIP, name##_COUNT, msg_traffic->count.msg ); \

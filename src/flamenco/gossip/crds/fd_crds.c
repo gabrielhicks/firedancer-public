@@ -865,7 +865,9 @@ fd_crds_checks_fast( fd_crds_t *                         crds,
                         fd_crds_insert_failed_insert( crds, cand_hash, candidate->wallclock_nanos );
       }
       return FD_CRDS_UPSERT_CHECK_FAILS;
-    case -1: return FD_CRDS_UPSERT_CHECK_UNDETERMINED;
+    case -1:
+      crds->metrics->undetermined.crd[ candidate->tag ]++;
+      return FD_CRDS_UPSERT_CHECK_UNDETERMINED;
     default: FD_LOG_ERR(( "impossible" ));
   }
   return FD_CRDS_UPSERT_CHECK_UNDETERMINED;
