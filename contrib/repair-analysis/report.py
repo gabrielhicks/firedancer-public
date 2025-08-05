@@ -459,7 +459,25 @@ def completion_times( fec_stats, shred_data, first_turbine, pdf ):
     pdf.savefig(fig, bbox_inches='tight')
     plt.close(fig)
 
+def show_turbine_arrivals(live, pdf):
+    # plot the turbine arrivals
+    fig = plt.figure(figsize=(12, 6))
+    live_turbine = live[live['is_turbine']]
+    live_turbine = live_turbine[live_turbine['slot'] >= 348905600]
+    #bucket it by every 10 ms, and round to to the nearest int
+    live_turbine['timestamp'] = (live_turbine['timestamp'] // 10_000_000).astype(int)
+    live_turbine = live_turbine.groupby('timestamp').size().reset_index(name='count')
+    sns.barplot(data=live_turbine, x='timestamp', y='count')
+    plt.title('Turbine Arrivals')
+    plt.xlabel('Timestamp')
+    plt.ylabel('count')
+    # show labels for every 10 ticks only
+    plt.setp(plt.gca().get_xticklabels(), visible=False)
+    plt.setp(plt.gca().get_xticklabels()[::5], visible=True)
 
+    plt.tight_layout()
+    pdf.savefig(fig, bbox_inches='tight')
+    plt.close(fig)
 
 def turbine_stats(catchup, live):
     print('\n\033[1mTurbine Statistics\033[0m\n')
@@ -577,9 +595,13 @@ def generate_report( log_path, request_data_path, shred_data_path, peers_data_pa
                                    skipfooter=1 ) # because of the buffered writer the last row is probably incomplete
 
     if request_data_path:
-        repair_requests = pd.read_csv( request_data_path,
-                                    dtype={'dst_ip': str, 'dst_port': int, 'timestamp': int, 'slot': int, 'idx': int, 'nonce': int },
-                                    skipfooter=1 )
+        try:
+            repair_requests = pd.read_csv( request_data_path,
+                                        dtype={'dst_ip': str, 'dst_port': int, 'timestamp': int, 'slot': int, 'idx': int, 'nonce': int },
+                                        skipfooter=1 )
+        except Exception as e:
+            print(f'Error reading repair requests: {e}')
+            request_data_path = None
 
     if peers_data_path:
         peers_data      = pd.read_csv( peers_data_path,
@@ -610,6 +632,7 @@ def generate_report( log_path, request_data_path, shred_data_path, peers_data_pa
     catchup = shreds_data[shreds_data['slot'].between(snapshot_slot, first_turbine - 1)]
     live    = shreds_data[shreds_data['slot'].between(first_turbine, last_executed)]
 
+    show_turbine_arrivals(live, pdf)
 
     if request_data_path:
         catchup_rq = repair_requests[repair_requests['slot'].between(snapshot_slot, first_turbine - 1)]
