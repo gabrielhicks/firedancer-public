@@ -580,21 +580,24 @@ fd_ssping_advance( fd_ssping_t * ssping,
 }
 
 fd_sspeer_t
-fd_ssping_best( fd_ssping_t const * ssping ) {
-  score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( ssping->score_treap, ssping->pool );
-  if( FD_UNLIKELY( score_treap_fwd_iter_done( iter ) ) ) {
-    return (fd_sspeer_t){ 
-      .addr = {
-        .l = 0UL
-      },
-      .snapshot_info = NULL,
-    };
+fd_ssping_best( fd_ssping_t const * ssping,
+                ulong               highest_slot ) {
+  for( score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( ssping->score_treap, ssping->pool );
+       !score_treap_fwd_iter_done( iter );
+       iter = score_treap_fwd_iter_next( iter, ssping->pool ) ) {
+    fd_ssping_peer_t const * best = score_treap_fwd_iter_ele_const( iter, ssping->pool );
+    if( FD_LIKELY( best->snapshot_info.incremental.slot>=highest_slot ) ) {
+      return (fd_sspeer_t){
+        .addr = best->addr,
+        .snapshot_info = &best->snapshot_info,
+      };
+    }
   }
 
-  fd_ssping_peer_t const * best = score_treap_fwd_iter_ele_const( iter, ssping->pool );
-
-  return (fd_sspeer_t){
-    .addr = best->addr,
-    .snapshot_info = &best->snapshot_info,
+  return (fd_sspeer_t){ 
+    .addr = {
+      .l = 0UL
+    },
+    .snapshot_info = NULL,
   };
 }

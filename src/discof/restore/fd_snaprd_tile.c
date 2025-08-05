@@ -2,6 +2,7 @@
 #include "utils/fd_sshttp.h"
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssarchive.h"
+#include "utils/fd_ssmsg.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -362,7 +363,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
 
   switch ( ctx->state ) {
     case FD_SNAPRD_STATE_WAITING_FOR_PEERS: {
-      fd_sspeer_t best = fd_ssping_best( ctx->ssping );
+      fd_sspeer_t best = fd_ssping_best( ctx->ssping, 0UL );
       if( FD_LIKELY( best.addr.l ) ) {
         ctx->state = FD_SNAPRD_STATE_COLLECTING_PEERS;
         ctx->deadline_nanos = now + 500L*1000L*1000L;
@@ -372,7 +373,14 @@ after_credit( fd_snaprd_tile_t *  ctx,
     case FD_SNAPRD_STATE_COLLECTING_PEERS: {
       if( FD_UNLIKELY( now<ctx->deadline_nanos ) ) break;
 
-      fd_sspeer_t best = fd_ssping_best( ctx->ssping );
+      ulong highest_slot = 0UL;
+      if( FD_LIKELY( ctx->peer.addr.l ) ) {
+        highest_slot = ctx->peer.snapshot_info->incremental.slot!=ULONG_MAX ?
+                       ctx->peer.snapshot_info->incremental.slot :
+                       ctx->peer.snapshot_info->full.slot;
+      }
+
+      fd_sspeer_t best = fd_ssping_best( ctx->ssping, highest_slot );
       if( FD_UNLIKELY( !best.addr.l ) ) {
         ctx->state = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
         break;
@@ -391,6 +399,12 @@ after_credit( fd_snaprd_tile_t *  ctx,
         FD_TEST( fd_cstr_printf_check( ctx->http.full_path, PATH_MAX, &ctx->http.full_len, "snapshot-%lu-%s.tar.zst", best.snapshot_info->full.slot, encoded_full_hash ) );
         FD_TEST( fd_cstr_printf_check( ctx->http.incremental_path, PATH_MAX, &ctx->http.incremental_len, "incremental-snapshot-%lu-%lu-%s.tar.zst", best.snapshot_info->incremental.base_slot, best.snapshot_info->incremental.slot, encoded_incremental_hash ) );
         FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/%s", ctx->http.full_path ) );
+
+        /* send the estimated incremental slot */
+        uint low;
+        uint high;
+        fd_ssmsg_slot_to_uint( best.snapshot_info->incremental.slot, &low, &high );
+        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_HIGHEST_SLOT, 0UL, 0UL, 0UL, low, high );
 
         FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( best.addr.addr ), best.addr.port, ctx->http.full_path ));
         ctx->peer  = best;
@@ -692,6 +706,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.wksp, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out.chunk  = ctx->out.chunk0;
   ctx->out.mtu    = topo->links[ tile->out_link_id[ 0 ] ].mtu;
+
+  fd_memset( &ctx->peer, 0, sizeof(ctx->peer) );
 }
 
 #define STEM_BURST 2UL /* One control message, and one data message */

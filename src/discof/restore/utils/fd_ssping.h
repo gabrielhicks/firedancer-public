@@ -108,7 +108,8 @@ fd_ssping_advance( fd_ssping_t * ssping,
    peer is active or pingable, this returns 0.0.0.0:0. */
 
 fd_sspeer_t
-fd_ssping_best( fd_ssping_t const * ssping );
+fd_ssping_best( fd_ssping_t const * ssping,
+                ulong               highest_slot );
 
 FD_PROTOTYPES_END
 
