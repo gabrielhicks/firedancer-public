@@ -1,0 +1,120 @@
+#include "fd_stake_delegations.h"
+
+int main( int argc, char ** argv ) {
+  fd_boot( &argc, &argv );
+
+  char *      _page_sz = "gigantic";
+  ulong       numa_idx = fd_shmem_numa_idx( 0 );
+  fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ),
+                                                1UL,
+                                                fd_shmem_cpu_idx( numa_idx ),
+                                                "wksp",
+                                                0UL );
+
+  void * stake_delegations_mem = fd_wksp_alloc_laddr( wksp, fd_stake_delegations_align(), fd_stake_delegations_footprint( 10UL ), 1UL );
+  FD_TEST( stake_delegations_mem );
+
+  FD_TEST( fd_stake_delegations_align()>=alignof(fd_stake_delegations_t)  );
+  FD_TEST( fd_stake_delegations_align()>=fd_stake_delegation_pool_align() );
+  FD_TEST( fd_stake_delegations_align()>=fd_stake_delegation_map_align()  );
+  FD_TEST( fd_stake_delegations_align()==FD_STAKE_DELEGATIONS_ALIGN );
+
+  ulong chain_cnt = fd_stake_delegation_map_chain_cnt_est( 10UL );
+  FD_TEST( fd_stake_delegations_footprint( 10UL ) >= fd_stake_delegations_align() + fd_stake_delegation_pool_footprint( 10UL ) + fd_stake_delegation_map_footprint( chain_cnt ) );
+
+  FD_TEST( !fd_stake_delegations_new( NULL, 10UL ) );
+  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL ) );
+  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, 10UL );
+  FD_TEST( new_stake_delegations_mem );
+
+  FD_TEST( !fd_stake_delegations_join( NULL ) );
+  void * junk_mem = fd_wksp_alloc_laddr( wksp, 1UL, 1UL, 999UL );
+  FD_TEST( junk_mem );
+  FD_TEST( !fd_stake_delegations_join( junk_mem ) );
+
+  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( new_stake_delegations_mem );
+  FD_TEST( stake_delegations );
+
+  FD_TEST( !fd_stake_delegations_leave( NULL ) );
+  FD_TEST( fd_stake_delegations_join( fd_stake_delegations_leave( stake_delegations ) ) );
+  FD_TEST( fd_stake_delegations_join( fd_stake_delegations_leave( stake_delegations ) )==stake_delegations );
+
+  fd_pubkey_t stake_account_0 = { .ul = { 999UL, 999UL} };
+  fd_pubkey_t stake_account_1 = { .ul = { 1, 2 } };
+  fd_pubkey_t stake_account_2 = { .ul = { 3, 4 } };
+  fd_pubkey_t stake_account_3 = { .ul = { 5, 6 } };
+
+  fd_pubkey_t voter_pubkey_0 = { .ul = { 5, 6 } };
+  fd_pubkey_t voter_pubkey_1 = { .ul = { 7, 8 } };
+
+  FD_TEST( fd_stake_delegations_count( stake_delegations ) == 0UL );
+  fd_stake_delegations_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 100UL, 0UL, 0UL, 0.0 );
+  FD_TEST( fd_stake_delegations_count( stake_delegations ) == 1UL );
+  fd_stake_delegations_update( stake_delegations, &stake_account_1, &voter_pubkey_1, 200UL, 0UL, 0UL, 0.0 );
+  FD_TEST( fd_stake_delegations_count( stake_delegations ) == 2UL );
+  fd_stake_delegations_update( stake_delegations, &stake_account_2, &voter_pubkey_1, 300UL, 0UL, 0UL, 0.0 );
+  FD_TEST( fd_stake_delegations_count( stake_delegations ) == 3UL );
+
+  fd_stake_delegation_t const * stake_delegation_0 = fd_stake_delegations_query( stake_delegations, &stake_account_0 );
+  FD_TEST( stake_delegation_0 );
+  FD_TEST( !memcmp( &stake_delegation_0->stake_account, &stake_account_0, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( &stake_delegation_0->vote_account, &voter_pubkey_0, sizeof(fd_pubkey_t) ) );
+  FD_TEST( stake_delegation_0->stake == 100UL );
+  FD_TEST( stake_delegation_0->activation_epoch == 0UL );
+  FD_TEST( stake_delegation_0->deactivation_epoch == 0UL );
+  FD_TEST( stake_delegation_0->warmup_cooldown_rate == 0.0 );
+
+  fd_stake_delegation_t const * stake_delegation_1 = fd_stake_delegations_query( stake_delegations, &stake_account_1 );
+  FD_TEST( stake_delegation_1 );
+  FD_TEST( !memcmp( &stake_delegation_1->stake_account, &stake_account_1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( &stake_delegation_1->vote_account, &voter_pubkey_1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( stake_delegation_1->stake == 200UL );
+  FD_TEST( stake_delegation_1->activation_epoch == 0UL );
+  FD_TEST( stake_delegation_1->deactivation_epoch == 0UL );
+  FD_TEST( stake_delegation_1->warmup_cooldown_rate == 0.0 );
+
+  fd_stake_delegation_t const * stake_delegation_2 = fd_stake_delegations_query( stake_delegations, &stake_account_2 );
+  FD_TEST( stake_delegation_2 );
+  FD_TEST( !memcmp( &stake_delegation_2->stake_account, &stake_account_2, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( &stake_delegation_2->vote_account, &voter_pubkey_1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( stake_delegation_2->stake == 300UL );
+  FD_TEST( stake_delegation_2->activation_epoch == 0UL );
+  FD_TEST( stake_delegation_2->deactivation_epoch == 0UL );
+  FD_TEST( stake_delegation_2->warmup_cooldown_rate == 0.0 );
+
+  FD_TEST( !fd_stake_delegations_query( stake_delegations, &stake_account_3 ) );
+
+  fd_stake_delegations_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 200UL, 0UL, 0UL, 0.0 );
+  FD_TEST( stake_delegation_0 );
+  FD_TEST( !memcmp( &stake_delegation_0->stake_account, &stake_account_0, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( &stake_delegation_0->vote_account, &voter_pubkey_0, sizeof(fd_pubkey_t) ) );
+  FD_TEST( stake_delegation_0->stake == 200UL );
+  FD_TEST( stake_delegation_0->activation_epoch == 0UL );
+  FD_TEST( stake_delegation_0->deactivation_epoch == 0UL );
+  FD_TEST( stake_delegation_0->warmup_cooldown_rate == 0.0 );
+  FD_TEST( fd_stake_delegations_count( stake_delegations ) == 3UL );
+
+  fd_stake_delegations_remove( stake_delegations, &stake_account_1 );
+  FD_TEST( !fd_stake_delegations_query( stake_delegations, &stake_account_1 ) );
+  FD_TEST( fd_stake_delegations_count( stake_delegations ) == 2UL );
+
+  fd_stake_delegations_update( stake_delegations, &stake_account_1, &voter_pubkey_1, 10000UL, 0UL, 0UL, 0.0 );
+  stake_delegation_1 = fd_stake_delegations_query( stake_delegations, &stake_account_1 );
+  FD_TEST( stake_delegation_1 );
+  FD_TEST( !memcmp( &stake_delegation_1->stake_account, &stake_account_1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( &stake_delegation_1->vote_account, &voter_pubkey_1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( stake_delegation_1->stake == 10000UL );
+  FD_TEST( stake_delegation_1->activation_epoch == 0UL );
+  FD_TEST( stake_delegation_1->deactivation_epoch == 0UL );
+  FD_TEST( stake_delegation_1->warmup_cooldown_rate == 0.0 );
+  FD_TEST( fd_stake_delegations_count( stake_delegations ) == 3UL );
+
+  FD_TEST( !fd_stake_delegations_delete( NULL ) );
+  uchar * deleted_mem = fd_stake_delegations_delete( fd_stake_delegations_leave( stake_delegations ) );
+  FD_TEST( deleted_mem );
+  FD_TEST( !fd_stake_delegations_join( deleted_mem ) );
+
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
+  return 0;
+}
