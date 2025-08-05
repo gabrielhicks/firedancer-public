@@ -22,8 +22,6 @@
 #include "../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus */
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
-#include "../../../flamenco/runtime/fd_runtime.h"
-#include "../../../flamenco/runtime/fd_txncache.h"
 
 #include <unistd.h> /* pause */
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
