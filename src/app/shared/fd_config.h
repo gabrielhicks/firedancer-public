@@ -11,7 +11,7 @@
 #define AFFINITY_SZ                      (256UL)
 #define CONFIGURE_STAGE_COUNT            ( 12UL)
 #define FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ( 16UL)
-#define FD_IP4_PORT_STR_MAX              (22UL)
+#define FD_IP4_PORT_STR_MAX              ( 22UL)
 
 struct fd_configh {
   char dynamic_port_range[ 32 ];
